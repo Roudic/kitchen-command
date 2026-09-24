@@ -345,8 +345,9 @@
 
     <div class="s-card">
       <div class="s-step"><span class="s-num">1</span><h2 class="s-title">Who's here?</h2></div>
-      <p class="s-help">Tap a name when they clock in. Tap them again to send on break or home.</p>
+      <p class="s-help">Only people scheduled for this day and daypart. Tap a name to clock them in. Call someone in if they were not on the PDF.</p>
       <div id="s-people"></div>
+      <button class="big-btn alt" id="s-callin" style="margin-top:10px;">Call someone in</button>
     </div>
 
     <div class="s-card">
@@ -979,7 +980,63 @@
   function isoDate(d){d=d||new Date();return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2);}
   function nowMin(){var d=new Date();return d.getHours()*60+d.getMinutes();}
   function clockDaypart(){var m=nowMin();return m<630?"breakfast":(m<840?"lunch":(m<1020?"afternoon":"dinner"));}
+  function daypartWindow(dp){
+    if(dp==="breakfast") return [5*60, 10*60+30];
+    if(dp==="lunch") return [10*60+30, 14*60];
+    if(dp==="afternoon") return [14*60, 17*60];
+    return [17*60, 23*60+59];
+  }
+  function hhmm(m){ return ("0"+Math.floor(m/60)).slice(-2)+":"+("0"+(m%60)).slice(-2); }
+  function shiftHitsDaypart(sh, dp){
+    if(!sh||!sh.start||!sh.end) return false;
+    var w=daypartWindow(dp), a=toMin(sh.start), b=toMin(sh.end);
+    if(b<=a) b+=24*60;
+    return a<w[1] && b>w[0];
+  }
   function shiftsToday(pid){var s=schedule[isoDate()];if(!s||!s.shifts)return [];return s.shifts.filter(function(x){return x.personId===pid;});}
+  function dueToday(dp){
+    var shifts=(schedule[isoDate()]&&schedule[isoDate()].shifts)||[];
+    var ids={};
+    shifts.forEach(function(sh){ if(sh.personId&&shiftHitsDaypart(sh, dp)) ids[sh.personId]=sh; });
+    return roster.filter(function(p){ return ids[p.id]; });
+  }
+  function saveTodaySchedule(doc){
+    schedule[doc.date]=doc;
+    if(db) return db.collection("schedule").doc(doc.date).set(doc).catch(function(e){ toast("Couldn't save ("+(e&&e.code)+")"); });
+    saveLocal();
+    return Promise.resolve();
+  }
+  function callInPerson(p){
+    var today=isoDate(), prev=schedule[today]||{date:today,shifts:[]};
+    var doc={date:today,shifts:(prev.shifts||[]).slice(),source:prev.source||"Call-in",importedAt:prev.importedAt||new Date().toISOString()};
+    if(doc.shifts.some(function(sh){ return sh.personId===p.id && shiftHitsDaypart(sh, board.daypart); })){ toast(p.name+" is already on this daypart"); return; }
+    var w=daypartWindow(board.daypart);
+    doc.shifts.push({personId:p.id,name:p.name,start:hhmm(w[0]),end:hhmm(w[1]),position:"Call-in",dept:"BOH",calledIn:true});
+    if(p.status!=="active"&&p.status!=="break") p.status="off";
+    savePerson(p);
+    saveTodaySchedule(doc).then(function(){ logFeed(p.name+" called in for "+DP_LABEL[board.daypart]); toast(p.name+" added to "+DP_LABEL[board.daypart]); renderAll(); });
+  }
+  function openCallIn(){
+    openSheet(function(s){
+      shHead(s,"Call someone in","They show up for "+DP_LABEL[board.daypart]+" today. Tap them to clock in after.");
+      var due={}; dueToday(board.daypart).forEach(function(p){ due[p.id]=1; });
+      var others=roster.filter(function(p){ return !due[p.id]; }).sort(function(a,b){ return a.name.localeCompare(b.name); });
+      if(!others.length){ var empty=document.createElement("p"); empty.className="sd"; empty.textContent="Everyone on the team is already on this daypart."; s.appendChild(empty); }
+      others.forEach(function(p){
+        shBtn(s,{label:p.name,small:"Add to "+DP_LABEL[board.daypart],fn:function(){ callInPerson(p); closeSheet(); }});
+      });
+      shSec(s,"Not on the team list");
+      var inp=document.createElement("input"); inp.className="field"; inp.placeholder="Name"; inp.style.marginBottom="8px"; s.appendChild(inp);
+      shBtn(s,{icon:"+",cls:"primary",label:"Add this name to today",fn:function(){
+        var n=inp.value.trim(); if(!n){ inp.focus(); return; }
+        var p={id:"p-"+Date.now().toString(36),name:n,skill:"",status:"off",trained:[]};
+        roster.push(p);
+        callInPerson(p);
+        closeSheet();
+      }});
+      shCancel(s,"Close");
+    });
+  }
   function shiftLabel(sh){return t12(sh.start)+"–"+t12(sh.end);}
   function normName(n){return String(n||"").toLowerCase().replace(/[^a-z\s]/g,"").replace(/\s+/g," ").trim();}
   function skillFromPosition(pos){
@@ -1149,7 +1206,6 @@
   // =====================================================================
   // SIMPLE MODE render
   // =====================================================================
-  var showEveryone=false;
   function renderSimple(){
     var d=new Date();
     $("s-when").textContent=d.toLocaleDateString([], {weekday:"long"}).toUpperCase()+" · "+d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
@@ -1171,40 +1227,39 @@
 
     // people
     var box=$("s-people"); box.innerHTML="";
-    var hasSched=!!(schedule[isoDate()]&&schedule[isoDate()].shifts&&schedule[isoDate()].shifts.length), m=nowMin();
-    function schedNow(p){return shiftsToday(p.id).some(function(x){return toMin(x.start)-60<=m&&m<toMin(x.end);});}
-    function schedLater(p){return shiftsToday(p.id).some(function(x){return toMin(x.start)-60>m;});}
-    var working=roster.filter(function(p){return p.status!=="off";});
-    var off=roster.filter(function(p){return p.status==="off";});
-    var groups=[["WORKING NOW",working]];
-    if(hasSched){
-      groups.push(["ON THE SCHEDULE NOW — TAP WHEN THEY CLOCK IN",off.filter(schedNow)]);
-      groups.push(["LATER TODAY",off.filter(function(p){return !schedNow(p)&&schedLater(p);})]);
-      var rest=off.filter(function(p){return !schedNow(p)&&!schedLater(p);});
-      if(showEveryone) groups.push(["EVERYONE ELSE",rest]);
-      else if(rest.length) groups.push(["__more",rest]);
-    } else groups.push(["NOT HERE YET",off]);
-    groups.forEach(function(g){
-      if(g[0]==="__more"){ var lb=document.createElement("button");lb.className="link-btn";lb.textContent="Show everyone else ("+g[1].length+")";lb.addEventListener("click",function(){showEveryone=true;renderSimple();});box.appendChild(lb);return; }
-      if(!g[1].length) return;
-      var l=document.createElement("div");l.className="grp-lbl";l.textContent=g[0];box.appendChild(l);
-      var grid=document.createElement("div");grid.className="tiles";
-      g[1].sort(function(a,b){return a.name.localeCompare(b.name);}).forEach(function(p){
-        var t=document.createElement("button"), where=placedAt(p.id), sh=shiftsToday(p.id);
-        var cls=p.status==="active"?"here":(p.status==="break"?"brk":"gone");
-        t.className="tile "+cls;
-        var sub=board.leaderId===p.id?"Shift leader":(where?"On "+where:(sh.length?shiftLabel(sh[0]):skillName(p.skill)||"—"));
-        var badge=p.status==="active"?"✓ HERE":(p.status==="break"?"☕ ON BREAK":"TAP TO CLOCK IN");
-        t.innerHTML='<span class="tn">'+esc(p.name)+'</span><span class="tt">'+esc(sub)+'</span><span class="tb">'+badge+'</span>';
-        t.addEventListener("click",function(){
-          if(p.status==="off"){ p.status="active"; savePerson(p); logFeed(p.name+" clocked in"); toast(p.name+" is here ✓",{label:"Undo",fn:function(){p.status="off";savePerson(p);}}); }
-          else personSheet(p);
+    var todayShifts=(schedule[isoDate()]&&schedule[isoDate()].shifts)||[];
+    var due=dueToday(board.daypart);
+    var hereN=due.filter(function(p){ return p.status==="active"||p.status==="break"; }).length;
+    var missing=due.filter(function(p){ return p.status==="off"; }).length;
+    if(!todayShifts.length){
+      box.innerHTML='<p class="s-help" style="margin:0;">No schedule for today. Upload the PDF, or call someone in.</p>';
+    } else if(!due.length){
+      box.innerHTML='<p class="s-help" style="margin:0;">Nobody on the schedule for '+esc(DP_LABEL[board.daypart])+' today.</p>';
+    } else {
+      var sum=document.createElement("div"); sum.className="grp-lbl";
+      sum.textContent=due.length+" SCHEDULED · "+hereN+" HERE · "+missing+" NOT IN";
+      box.appendChild(sum);
+      [["HERE", due.filter(function(p){ return p.status!=="off"; })],["NOT IN YET", due.filter(function(p){ return p.status==="off"; })]].forEach(function(g){
+        if(!g[1].length) return;
+        var l=document.createElement("div"); l.className="grp-lbl"; l.textContent=g[0]; box.appendChild(l);
+        var grid=document.createElement("div"); grid.className="tiles";
+        g[1].sort(function(a,b){ return a.name.localeCompare(b.name); }).forEach(function(p){
+          var t=document.createElement("button"), where=placedAt(p.id), sh=shiftsToday(p.id).filter(function(x){ return shiftHitsDaypart(x, board.daypart); });
+          var cls=p.status==="active"?"here":(p.status==="break"?"brk":"gone");
+          t.className="tile "+cls;
+          var sub=board.leaderId===p.id?"Shift leader":(where?"On "+where:(sh.length?shiftLabel(sh[0]):"—"));
+          if(sh[0]&&sh[0].calledIn) sub="Called in"+(where?" · on "+where:"");
+          var badge=p.status==="active"?"✓ HERE":(p.status==="break"?"☕ ON BREAK":"NOT IN · TAP TO CLOCK IN");
+          t.innerHTML='<span class="tn">'+esc(p.name)+'</span><span class="tt">'+esc(sub)+'</span><span class="tb">'+badge+'</span>';
+          t.addEventListener("click",function(){
+            if(p.status==="off"){ p.status="active"; savePerson(p); logFeed(p.name+" clocked in"); toast(p.name+" is here ✓",{label:"Undo",fn:function(){p.status="off";savePerson(p);}}); }
+            else personSheet(p);
+          });
+          grid.appendChild(t);
         });
-        grid.appendChild(t);
+        box.appendChild(grid);
       });
-      box.appendChild(grid);
-    });
-    if(!roster.length) box.innerHTML='<p class="s-help" style="margin:0;">No names yet. Tap <b>Upload schedule (PDF)</b> at the bottom to load your team.</p>';
+    }
 
     // fill
     var free=roster.filter(function(p){return p.status==="active"&&!placedAt(p.id)&&p.id!==board.leaderId;}).length;
@@ -1876,6 +1931,7 @@
     tasks.push(t); $("new-task").value=""; saveTask(t);
   });
   $("new-task").addEventListener("keydown",function(e){if(e.key==="Enter")$("add-task").click();});
+  $("s-callin").addEventListener("click",openCallIn);
   $("s-add-task").addEventListener("click",function(){
     var n=$("s-new-task").value.trim(); if(!n) return;
     var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now()};

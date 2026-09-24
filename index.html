@@ -452,6 +452,7 @@
         <select class="field" id="ap-skill"></select>
         <button class="btn primary" id="ap-save">Add to roster</button>
       </div>
+      <div class="dp-row" id="adv-dps" style="margin:0 0 8px;"></div>
       <p class="hint" id="roster-filter" style="margin:0 0 8px;"></p>
       <div class="roster-scroll" id="roster-list"></div>
       <div class="hint">Drag a name onto a station, or tap the name then tap the station. Drag someone back here to pull them off.</div>
@@ -604,7 +605,34 @@
 
   // ---------- persistence ----------
   var boardWriting = Promise.resolve();
+  function ensureDeployments(){
+    var dps=["breakfast","lunch","afternoon","dinner"];
+    if(!board.deployments){
+      board.deployments={};
+      dps.forEach(function(dp){ board.deployments[dp]={assignments:{},leaderId:null}; });
+      var cur=dps.indexOf(board.daypart)>-1?board.daypart:"lunch";
+      board.deployments[cur].assignments=board.assignments||{};
+      board.deployments[cur].leaderId=board.leaderId||null;
+    }
+    dps.forEach(function(dp){
+      if(!board.deployments[dp]) board.deployments[dp]={assignments:{},leaderId:null};
+      if(!board.deployments[dp].assignments) board.deployments[dp].assignments={};
+    });
+  }
+  function showDaypart(dp){
+    ensureDeployments();
+    if(dpsHas(board.daypart)){
+      board.deployments[board.daypart].assignments=board.assignments||{};
+      board.deployments[board.daypart].leaderId=board.leaderId||null;
+    }
+    board.daypart=dpsHas(dp)?dp:"lunch";
+    board.assignments=board.deployments[board.daypart].assignments;
+    board.leaderId=board.deployments[board.daypart].leaderId||null;
+  }
+  function dpsHas(dp){ return ["breakfast","lunch","afternoon","dinner"].indexOf(dp)>-1; }
+  function setDaypart(dp){ showDaypart(dp); saveBoard(); }
   function saveBoard(){
+    showDaypart(board.daypart);
     board.updatedAt = new Date().toISOString();
     if(db){ var body=clone(board); boardWriting=boardWriting.then(function(){return db.doc("board/current").set(body);}).catch(function(e){toast("Couldn't save ("+(e&&e.code)+")");}); }
     else saveLocal();
@@ -767,7 +795,7 @@
       }
     });
     $("fc-chips").innerHTML=html;
-    $("fc-chips").querySelectorAll(".chip").forEach(function(el){el.addEventListener("click",function(){board.daypart=el.getAttribute("data-dp");saveBoard();});});
+    $("fc-chips").querySelectorAll(".chip").forEach(function(el){el.addEventListener("click",function(){setDaypart(el.getAttribute("data-dp"));});});
     // note (shown under chart, and as a hint when collapsed)
     var note;
     if(act){
@@ -841,16 +869,19 @@
 
   // ---------- render: roster ----------
   function renderRoster(){
+    applyClockToStatus();
     var q=$("roster-search").value.trim().toLowerCase(), list=$("roster-list");
     var today=isoDate(), dayDoc=schedule[today], todayShifts=(dayDoc&&dayDoc.shifts)||[];
     var due=dueToday(board.daypart);
-    var hereN=due.filter(function(p){return p.status==="active"||p.status==="break";}).length;
+    var hereN=due.filter(function(p){return clockOf(p)!=="off";}).length;
     $("roster-count").textContent="("+due.length+" "+DP_LABEL[board.daypart]+")";
-    $("m-active").textContent=due.filter(function(p){return p.status==="active";}).length+" active";
-    $("m-break").textContent=due.filter(function(p){return p.status==="break";}).length+" break";
-    $("roster-filter").textContent=shortDate(today)+" · "+DP_LABEL[board.daypart]+" · "+due.length+" scheduled · "+hereN+" here";
+    $("m-active").textContent=due.filter(function(p){return clockOf(p)==="active";}).length+" on the clock";
+    $("m-break").textContent=due.filter(function(p){return clockOf(p)==="break";}).length+" break";
+    $("roster-filter").textContent=shortDate(today)+" · "+DP_LABEL[board.daypart]+" · "+due.length+" scheduled · "+hereN+" on the clock";
+    $("adv-dps").innerHTML=["breakfast","lunch","afternoon","dinner"].map(function(k){return '<button type="button" class="dp-btn'+(k===board.daypart?' on':'')+'" data-dp="'+k+'">'+DP_LABEL[k]+'</button>';}).join("");
+    $("adv-dps").querySelectorAll(".dp-btn").forEach(function(b){b.addEventListener("click",function(){setDaypart(b.getAttribute("data-dp"));});});
     var vis=due.filter(function(p){return !q||p.name.toLowerCase().indexOf(q)>-1||skillName(p.skill).toLowerCase().indexOf(q)>-1;});
-    var groups=[["HERE",function(p){return p.status==="active"&&!placedAt(p.id)&&p.id!==board.leaderId;}],["LEADER",function(p){return p.id===board.leaderId&&p.status!=="off";}],["ON STATIONS",function(p){return placedAt(p.id)&&p.status!=="off";}],["ON BREAK",function(p){return p.status==="break"&&!placedAt(p.id)&&p.id!==board.leaderId;}],["NOT IN YET",function(p){return p.status==="off";}]];
+    var groups=[["ON THE CLOCK",function(p){return clockOf(p)!=="off";}],["NOT IN YET",function(p){return clockOf(p)==="off";}]];
     list.innerHTML="";
     if(!todayShifts.length){list.innerHTML='<div class="hint">No schedule for '+esc(shortDate(today))+'. Upload the PDF, or call someone in.</div>';return;}
     if(!due.length){list.innerHTML='<div class="hint">Nobody on the schedule for '+esc(DP_LABEL[board.daypart])+' on '+esc(shortDate(today))+'.</div>';return;}
@@ -870,12 +901,16 @@
     el.querySelector(".st-btn").addEventListener("pointerdown",function(ev){ev.stopPropagation();});
     el.querySelector(".st-btn").addEventListener("click",function(ev){
       ev.stopPropagation();
-      p.status=p.status==="active"?"break":(p.status==="break"?"off":"active");
-      if(p.status==="off"){var s=placedAt(p.id);if(s){board.assignments[s]=board.assignments[s].filter(function(x){return x!==p.id;});saveBoard();}}
-      savePerson(p);
+      var next=clockOf(p)==="active"?"break":(clockOf(p)==="break"?"off":"active");
+      if(next==="off"){var s=placedAt(p.id);if(s){board.assignments[s]=board.assignments[s].filter(function(x){return x!==p.id;});saveBoard();}}
+      setClock(p, next);
     });
     el.addEventListener("pointerdown",function(e){beginPress(e,p.id);});
-    el.addEventListener("click",function(){ if(suppressClick||p.status==="off")return; selected=(selected===p.id)?null:p.id; renderAll(); });
+    el.addEventListener("click",function(){
+      if(suppressClick) return;
+      if(clockOf(p)==="off"){ setClock(p,"active"); logFeed(p.name+" clocked in for "+DP_LABEL[board.daypart]); toast(p.name+" is on the clock"); return; }
+      selected=(selected===p.id)?null:p.id; renderAll();
+    });
     return el;
   }
   function skillsEl(p){
@@ -1065,6 +1100,21 @@
     var ids={};
     shifts.forEach(function(sh){ if(sh.personId&&shiftHitsDaypart(sh, dp)) ids[sh.personId]=sh; });
     return roster.filter(function(p){ return ids[p.id]; });
+  }
+  function clockOf(p, dp){
+    dp=dp||board.daypart;
+    if(p.clock&&p.clock[dp]) return p.clock[dp];
+    if(!p.clock&&dp===clockDaypart()) return p.status||"off";
+    return "off";
+  }
+  function setClock(p, status){
+    if(!p.clock) p.clock={};
+    p.clock[board.daypart]=status;
+    p.status=status;
+    savePerson(p);
+  }
+  function applyClockToStatus(){
+    roster.forEach(function(p){ p.status=clockOf(p); });
   }
   function saveTodaySchedule(doc){
     schedule[doc.date]=doc;
@@ -1273,6 +1323,7 @@
   // SIMPLE MODE render
   // =====================================================================
   function renderSimple(){
+    applyClockToStatus();
     var d=new Date();
     $("s-when").textContent=d.toLocaleDateString([], {weekday:"long"}).toUpperCase()+" · "+d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
     var on=onStationsCount(), target=targetCrew(forecast[todayName]?todayName:fcDay);
@@ -1286,17 +1337,17 @@
     $("s-rush").innerHTML='<b>'+on+' of '+target+'</b> on stations for '+DP_LABEL[board.daypart].toLowerCase()+(r?' · <b>'+esc(rt.big)+'</b>':'');
     paintBrief();
     $("s-dps").innerHTML=["breakfast","lunch","afternoon","dinner"].map(function(k){return '<button class="dp-btn'+(k===board.daypart?' on':'')+'" data-dp="'+k+'">'+DP_LABEL[k]+'</button>';}).join("");
-    $("s-dps").querySelectorAll(".dp-btn").forEach(function(b){b.addEventListener("click",function(){board.daypart=b.getAttribute("data-dp");saveBoard();});});
+    $("s-dps").querySelectorAll(".dp-btn").forEach(function(b){b.addEventListener("click",function(){setDaypart(b.getAttribute("data-dp"));});});
     var cd=clockDaypart();
     $("s-nudge").innerHTML=cd!==board.daypart?'<div class="nudge">It\'s '+DP_LABEL[cd].toLowerCase()+' time now. Switch the board?<button class="btn primary" id="s-switch">Switch to '+DP_LABEL[cd]+'</button></div>':"";
-    if($("s-switch")) $("s-switch").addEventListener("click",function(){board.daypart=cd;saveBoard();});
+    if($("s-switch")) $("s-switch").addEventListener("click",function(){setDaypart(cd);});
 
     // people
     var box=$("s-people"); box.innerHTML="";
     var todayShifts=(schedule[isoDate()]&&schedule[isoDate()].shifts)||[];
     var due=dueToday(board.daypart);
-    var hereN=due.filter(function(p){ return p.status==="active"||p.status==="break"; }).length;
-    var missing=due.filter(function(p){ return p.status==="off"; }).length;
+    var hereN=due.filter(function(p){ return clockOf(p)!=="off"; }).length;
+    var missing=due.filter(function(p){ return clockOf(p)==="off"; }).length;
     if(!todayShifts.length){
       box.innerHTML='<p class="s-help" style="margin:0;">No schedule for today. Upload the PDF, or call someone in.</p>';
     } else if(!due.length){
@@ -1305,20 +1356,20 @@
       var sum=document.createElement("div"); sum.className="grp-lbl";
       sum.textContent=due.length+" SCHEDULED · "+hereN+" HERE · "+missing+" NOT IN";
       box.appendChild(sum);
-      [["HERE", due.filter(function(p){ return p.status!=="off"; })],["NOT IN YET", due.filter(function(p){ return p.status==="off"; })]].forEach(function(g){
+      [["ON THE CLOCK", due.filter(function(p){ return clockOf(p)!=="off"; })],["NOT IN YET", due.filter(function(p){ return clockOf(p)==="off"; })]].forEach(function(g){
         if(!g[1].length) return;
         var l=document.createElement("div"); l.className="grp-lbl"; l.textContent=g[0]; box.appendChild(l);
         var grid=document.createElement("div"); grid.className="tiles";
         g[1].sort(function(a,b){ return a.name.localeCompare(b.name); }).forEach(function(p){
           var t=document.createElement("button"), where=placedAt(p.id), sh=shiftsToday(p.id).filter(function(x){ return shiftHitsDaypart(x, board.daypart); });
-          var cls=p.status==="active"?"here":(p.status==="break"?"brk":"gone");
+          var cls=clockOf(p)==="active"?"here":(clockOf(p)==="break"?"brk":"gone");
           t.className="tile "+cls;
           var sub=board.leaderId===p.id?"Shift leader":(where?"On "+where:(sh.length?shiftLabel(sh[0]):"—"));
           if(sh[0]&&sh[0].calledIn) sub="Called in"+(where?" · on "+where:"");
-          var badge=p.status==="active"?"✓ HERE":(p.status==="break"?"☕ ON BREAK":"NOT IN · TAP TO CLOCK IN");
+          var badge=clockOf(p)==="active"?"✓ ON THE CLOCK":(clockOf(p)==="break"?"☕ ON BREAK":"NOT IN · TAP TO CLOCK IN");
           t.innerHTML='<span class="tn">'+esc(p.name)+'</span><span class="tt">'+esc(sub)+'</span><span class="tb">'+badge+'</span>';
           t.addEventListener("click",function(){
-            if(p.status==="off"){ p.status="active"; savePerson(p); logFeed(p.name+" clocked in"); toast(p.name+" is here ✓",{label:"Undo",fn:function(){p.status="off";savePerson(p);}}); }
+            if(clockOf(p)==="off"){ setClock(p,"active"); logFeed(p.name+" clocked in for "+DP_LABEL[board.daypart]); toast(p.name+" is on the clock",{label:"Undo",fn:function(){setClock(p,"off");}}); }
             else personSheet(p);
           });
           grid.appendChild(t);
@@ -1974,7 +2025,7 @@
     draw();
   }
 
-  $("daypart-select").addEventListener("change",function(){board.daypart=this.value;saveBoard();});
+  $("daypart-select").addEventListener("change",function(){setDaypart(this.value);});
   $("view-seg").addEventListener("click",function(e){var b=e.target.closest("button[data-view]");if(b)setView(b.getAttribute("data-view"));});
   $("tv-seg").addEventListener("click",function(e){var b=e.target.closest("button[data-view]");if(b)setView(b.getAttribute("data-view"));});
   $("sched-btn").addEventListener("click",openImport);
@@ -2054,7 +2105,7 @@
   loadLocalGrokKey();
 
   function goLocal(){
-    loadLocal(); renderAll(); setSync("local","Local only");
+    loadLocal(); showDaypart(board.daypart); renderAll(); setSync("local","Local only");
     $("footer").textContent="Kitchen Command · live sync unavailable in this view — saving on this device only";
   }
   if(!window.claude||!window.claude.use){goLocal();return;}
@@ -2069,6 +2120,7 @@
       if(inc){
         var old=board.assignments||{};
         board=clone(inc); board.assignments=board.assignments||{};
+        showDaypart(board.daypart);
         if(firstLoad.board&&!s.metadata.hasPendingWrites){
           stationList().forEach(function(st){var a=(old[st]||[]).join(","),b=(board.assignments[st]||[]).join(",");if(a!==b){var names=(board.assignments[st]||[]).map(function(id){var p=person(id);return p?p.name:"?";});logFeed(st+" → "+(names.length?names.join(", "):"cleared"));}});
         }

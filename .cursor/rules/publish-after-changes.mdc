@@ -1,0 +1,12 @@
+---
+description: Publish Kitchen Command to GitHub Pages after every completed change.
+alwaysApply: true
+---
+
+# Publish after every change
+
+When a change to this project is finished, commit the files for that change and push `master` so https://roudic.github.io/kitchen-command/ updates. Do this without waiting to be asked again.
+
+- Push `master`. GitHub Pages serves that branch.
+- Leave out `grok-key.local`, other secrets, `functions/node_modules`, and unrelated untracked folders.
+- Do not force-push.

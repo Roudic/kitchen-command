@@ -346,6 +346,7 @@
     <button data-view="tv-tasks">Tasks</button>
     <button data-view="tv-forecast">Forecast</button>
     <button data-view="tv-rotate">Rotate</button>
+    <button type="button" id="tv-full">Full screen</button>
   </div>
   <span class="sync" id="sync"><span class="dot"></span><span id="sync-text">Connecting…</span></span>
 </div>
@@ -2041,6 +2042,19 @@
   $("daypart-select").addEventListener("change",function(){setDaypart(this.value);});
   $("view-seg").addEventListener("click",function(e){var b=e.target.closest("button[data-view]");if(b)setView(b.getAttribute("data-view"));});
   $("tv-seg").addEventListener("click",function(e){var b=e.target.closest("button[data-view]");if(b)setView(b.getAttribute("data-view"));});
+  function tvIsFull(){ return !!(document.fullscreenElement||document.webkitFullscreenElement); }
+  function paintTvFull(){ var b=$("tv-full"); if(!b) return; b.textContent=tvIsFull()?"Exit full screen":"Full screen"; b.classList.toggle("active",tvIsFull()); }
+  $("tv-full").addEventListener("click",function(){
+    if(tvIsFull()){
+      var exit=document.exitFullscreen||document.webkitExitFullscreen;
+      if(exit) exit.call(document);
+    } else {
+      var el=document.documentElement, req=el.requestFullscreen||el.webkitRequestFullscreen;
+      if(req) req.call(el);
+    }
+  });
+  document.addEventListener("fullscreenchange",paintTvFull);
+  document.addEventListener("webkitfullscreenchange",paintTvFull);
   $("sched-btn").addEventListener("click",openImport);
   $("s-sched").addEventListener("click",openImport);
   $("s-team").addEventListener("click",teamSheet);

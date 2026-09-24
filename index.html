@@ -213,6 +213,10 @@
   .s-sub{font-size:16px;color:var(--text-dim);line-height:1.4;}
   .s-sub b{color:var(--text);}
   .s-sub.hot b{color:#ff6b83;}
+  .s-brief{margin-top:12px;background:var(--panel-2);border-radius:14px;padding:12px 14px;}
+  .s-brief .k{font-size:12px;font-weight:850;letter-spacing:.5px;color:var(--text-faint);margin-top:8px;}
+  .s-brief .k:first-child{margin-top:0;}
+  .s-brief .v{font-size:16px;font-weight:750;line-height:1.35;}
   .dp-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:14px;}
   .dp-btn{appearance:none;border:2px solid var(--line);background:var(--panel-2);color:var(--text-dim);font-size:16px;font-weight:750;border-radius:12px;min-height:54px;cursor:pointer;padding:4px;}
   .dp-btn.on{border-color:var(--red);background:var(--red);color:#fff;}
@@ -334,6 +338,7 @@
       <div class="when" id="s-when"></div>
       <div class="s-status" id="s-status">Loading…</div>
       <div class="s-sub" id="s-rush"></div>
+      <div class="s-brief" id="s-brief" style="display:none"></div>
       <div class="dp-row" id="s-dps"></div>
       <div id="s-nudge"></div>
     </div>
@@ -369,6 +374,7 @@
         <button class="big-btn alt" id="s-team">👥 Team list</button>
         <button class="big-btn alt" id="s-sales">📈 Upload sales (CSV)</button>
         <button class="big-btn alt" id="s-helpbtn">❓ How this works</button>
+        <button class="big-btn alt" id="s-grok">🔑 Grok key</button>
       </div>
       <div id="s-helpbox" style="display:none;">
         <ol class="help-list">
@@ -410,6 +416,7 @@
       <div style="display:flex;gap:8px;margin-bottom:8px;">
         <button class="btn" id="toggle-add" style="flex:1;">+ Add</button>
         <button class="btn" id="sched-btn" style="flex:1;">Schedule PDF</button>
+        <button class="btn" id="grok-btn">Grok</button>
         <button class="btn" id="import-btn">CSV</button>
         <input type="file" id="csv-file" accept=".csv" hidden>
       </div>
@@ -714,6 +721,8 @@
       var thru=Object.keys(sales).sort().pop();
       note="Forecast for "+shortDate(fcDate)+(fcDate===today?" (today)":"")+" · built from "+basedOn(fc)+(thru?" · sales loaded through "+shortDate(thru):"")+(fc.days<2?" · low confidence, one day of data":"")+(fcMeta?" · spikes over "+money(fcMeta.spikeCap)+"/15 capped":"")+" · crew bands are a proposed starting point";
     }
+    var br=shownBrief();
+    if(br&&br.source==="grok") note+=" · "+br.now+" "+br.doThis+" "+br.nextHit;
     $("fc-note").textContent=note;
     if(!ui.chartOpen) return;
     // chart: union of time slots
@@ -911,6 +920,7 @@
     if(view==="simple") renderSimple();
     else if(view==="editor"){ renderForecast(); renderRoster(); renderStations(); renderTasks(); }
     else renderTV();
+    maybeRefreshBrief(false);
   }
 
   function setView(v){
@@ -1116,6 +1126,7 @@
     var r=rushStatus(), rt=rushText(r);
     $("s-rush").className="s-sub"+(r&&r.state==="in"?" hot":"");
     $("s-rush").innerHTML='<b>'+on+' of '+target+'</b> on stations for '+DP_LABEL[board.daypart].toLowerCase()+(r?' · <b>'+esc(rt.big)+'</b>':'');
+    paintBrief();
     $("s-dps").innerHTML=["breakfast","lunch","afternoon","dinner"].map(function(k){return '<button class="dp-btn'+(k===board.daypart?' on':'')+'" data-dp="'+k+'">'+DP_LABEL[k]+'</button>';}).join("");
     $("s-dps").querySelectorAll(".dp-btn").forEach(function(b){b.addEventListener("click",function(){board.daypart=b.getAttribute("data-dp");saveBoard();});});
     var cd=clockDaypart();
@@ -1197,6 +1208,169 @@
   }
 
   // =====================================================================
+  // GROK — key stays in this browser only. Never written to Firebase or git.
+  // =====================================================================
+  var LS_GROK="kitchen_command_grok_key_v1", GROK_URL="https://api.x.ai/v1/chat/completions", GROK_MODEL="grok-4";
+  var aiBrief=null, briefBusy=false;
+  function grokKey(){ try{ return String(localStorage.getItem(LS_GROK)||"").trim(); }catch(e){ return ""; } }
+  function setGrokKey(k){ try{ if(k) localStorage.setItem(LS_GROK, String(k).trim()); else localStorage.removeItem(LS_GROK); }catch(e){} }
+  function loadLocalGrokKey(){
+    if(grokKey()) return Promise.resolve();
+    if(location.protocol==="file:") return Promise.resolve();
+    return fetch("grok-key.local",{cache:"no-store"}).then(function(r){
+      if(!r.ok) return "";
+      return r.text();
+    }).then(function(text){
+      var line=String(text||"").split(/\r?\n/).map(function(s){return s.trim();}).filter(function(s){return s&&s.charAt(0)!=="#";})[0]||"";
+      if(line.indexOf("PASTE")===0) return;
+      if(line) setGrokKey(line);
+    }).catch(function(){});
+  }
+  function parseJsonLoose(text){
+    var s=String(text||"").trim(), fence=s.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if(fence) s=fence[1].trim();
+    var i=s.indexOf("{"), j=s.lastIndexOf("}");
+    if(i<0||j<=i) throw {code:"invalid_json"};
+    return JSON.parse(s.slice(i,j+1));
+  }
+  function grokChat(messages, opts){
+    var key=grokKey();
+    if(!key) return Promise.reject({code:"no_key"});
+    return fetch(GROK_URL,{
+      method:"POST",
+      signal:opts&&opts.signal,
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
+      body:JSON.stringify({model:(opts&&opts.model)||GROK_MODEL,temperature:0,messages:messages})
+    }).then(function(r){
+      if(r.status===401||r.status===403) throw {code:"bad_key"};
+      if(r.status===429) throw {code:"rate_limited"};
+      if(!r.ok) throw {code:"grok"};
+      return r.json();
+    }).then(function(data){
+      var text=data&&data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
+      if(!text) throw {code:"invalid_json"};
+      return text;
+    });
+  }
+  function grokJson(prompt, opts){
+    var content=prompt;
+    if(opts&&opts.images&&opts.images.length){
+      content=[{type:"text",text:prompt}].concat(opts.images.map(function(url){return {type:"image_url",image_url:{url:url}}; }));
+    }
+    return grokChat([{role:"user",content:content}],opts).then(parseJsonLoose);
+  }
+  function blobToDataUrl(blob){
+    return new Promise(function(res,rej){ var fr=new FileReader(); fr.onload=function(){res(fr.result);}; fr.onerror=function(){rej(new Error("load"));}; fr.readAsDataURL(blob); });
+  }
+  function openGrokKey(){
+    openSheet(function(s){
+      shHead(s,"Grok key","This key stays on this device only. It is not saved to the website or the database.");
+      var inp=document.createElement("input"); inp.type="password"; inp.className="field"; inp.autocomplete="off";
+      inp.placeholder=grokKey()?"Paste a new key to replace it":"Paste your xAI API key";
+      inp.style.cssText="font-size:18px;min-height:54px;margin-bottom:10px;";
+      s.appendChild(inp);
+      shBtn(s,{icon:"✓",cls:"primary",label:grokKey()?"Replace key":"Save key on this device",fn:function(){
+        var v=inp.value.trim(); if(!v){inp.focus();return;}
+        setGrokKey(v); toast("Grok key saved on this device"); closeSheet(); maybeRefreshBrief(true); renderAll();
+      }});
+      if(grokKey()) shBtn(s,{label:"Clear key from this device",fn:function(){ setGrokKey(""); aiBrief=null; toast("Grok key removed"); closeSheet(); renderAll(); }});
+      shCancel(s,"Close");
+    });
+  }
+
+  function briefBoundary(){
+    var r=rushStatus();
+    if(!r) return isoDate()+"|none|"+board.daypart;
+    return [isoDate(), r.state, r.dp||"", r.from||"", r.to||"", board.daypart].join("|");
+  }
+  function briefFacts(){
+    var r=rushStatus(), fc=forecast[todayName]||{}, dps={};
+    ["breakfast","lunch","afternoon","dinner"].forEach(function(k){
+      var x=fc.dayparts&&fc.dayparts[k]; if(!x) return;
+      dps[k]={sales:x.total,peakPer15:x.peakAvg,peakCrew:x.peakCrew,hotFrom:x.hotFrom,hotTo:x.hotTo};
+    });
+    return {
+      clock:new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}),
+      weekday:todayName,
+      selectedDaypart:board.daypart,
+      onStations:onStationsCount(),
+      target:targetCrew(forecast[todayName]?todayName:fcDay),
+      peopleHere:roster.filter(function(p){return p.status==="active";}).length,
+      rush:r?{state:r.state,daypart:r.dp||"",starts:r.from?min12(r.from):"",until:r.to?min12(r.to):"",minutesUntil:r.inMin,peakCrew:r.crew,peakPer15:r.peak}:null,
+      dayparts:dps
+    };
+  }
+  function localBrief(boundary){
+    var r=rushStatus(), on=onStationsCount(), target=targetCrew(forecast[todayName]?todayName:fcDay);
+    var here=roster.filter(function(p){return p.status==="active";}).length;
+    var now, doThis, nextHit;
+    if(!r){ now="No forecast for today."; doThis="Upload sales so the board knows the crew target."; nextHit="No rush time is loaded yet."; }
+    else if(r.state==="in"){
+      now=DP_LABEL[r.dp]+" rush is on until "+min12(r.to)+".";
+      doThis=on>=r.crew?"Hold. Stations are at the "+r.crew+" target.":"Put "+(r.crew-on)+" more on stations. "+here+" people are clocked in.";
+      nextHit="This window peaks at "+money(r.peak)+" per 15 minutes and wants "+r.crew+" BOH.";
+    } else if(r.state==="next"){
+      now="Quiet stretch. Next rush is not here yet.";
+      doThis="Prep and hold. "+DP_LABEL[board.daypart]+" target is "+target+" on stations.";
+      nextHit=DP_LABEL[r.dp]+" hits at "+min12(r.from)+" · "+money(r.peak)+" per 15 · "+r.crew+" BOH.";
+    } else { now="Rushes are done for today."; doThis="Keep a close crew and finish the task list."; nextHit="No more rush window today."; }
+    return {now:now,doThis:doThis,nextHit:nextHit,boundary:boundary,source:"board",at:new Date().toISOString()};
+  }
+  function cleanBrief(obj, boundary){
+    if(!obj||typeof obj!=="object") return null;
+    var now=String(obj.now||"").trim(), doThis=String(obj.doThis||"").trim(), nextHit=String(obj.nextHit||"").trim();
+    if(!now||!doThis||!nextHit) return null;
+    function clip(s){return s.slice(0,280);}
+    var facts=briefFacts(), allowed={};
+    function add(n){ if(n==null||isNaN(+n)) return; var r=Math.round(+n); allowed["$"+r.toLocaleString()]=1; allowed["$"+r]=1; }
+    if(facts.rush) add(facts.rush.peakPer15);
+    Object.keys(facts.dayparts||{}).forEach(function(k){ add(facts.dayparts[k].sales); add(facts.dayparts[k].peakPer15); });
+    var blob=now+" "+doThis+" "+nextHit, bad=(blob.match(/\$[\d,]+/g)||[]).some(function(d){return !allowed[d];});
+    if(bad) return null;
+    return {now:clip(now),doThis:clip(doThis),nextHit:clip(nextHit),boundary:boundary,source:"grok",at:new Date().toISOString()};
+  }
+  function shownBrief(){
+    var b=briefBoundary();
+    if(aiBrief&&aiBrief.boundary===b) return aiBrief;
+    if(fcMeta&&fcMeta.aiBrief&&fcMeta.aiBrief.boundary===b) return fcMeta.aiBrief;
+    return localBrief(b);
+  }
+  function paintBrief(){
+    var el=$("s-brief"); if(!el) return;
+    var b=shownBrief();
+    el.style.display="block";
+    el.innerHTML='<div class="k">NOW</div><div class="v">'+esc(b.now)+'</div><div class="k">DO THIS</div><div class="v">'+esc(b.doThis)+'</div><div class="k">NEXT HIT</div><div class="v">'+esc(b.nextHit)+'</div>';
+  }
+  function persistBrief(brief){
+    aiBrief=brief;
+    if(fcMeta) fcMeta.aiBrief=brief;
+    if(!db||brief.source!=="grok") return Promise.resolve();
+    if(fcMeta) return db.doc("forecast/meta").update({aiBrief:brief}).catch(function(){ var body=clone(fcMeta); body.aiBrief=brief; return db.doc("forecast/meta").set(body); });
+    return db.doc("forecast/meta").set({aiBrief:brief});
+  }
+  function maybeRefreshBrief(force){
+    if(!grokKey()||briefBusy) return;
+    var b=briefBoundary();
+    if(!force && aiBrief && aiBrief.boundary===b && aiBrief.source==="grok") return;
+    if(!force && fcMeta && fcMeta.aiBrief && fcMeta.aiBrief.boundary===b && fcMeta.aiBrief.source==="grok"){ aiBrief=fcMeta.aiBrief; return; }
+    if(!forecast[todayName]) return;
+    briefBusy=true;
+    var facts=briefFacts();
+    var prompt="Write a shift-leader brief for a Chick-fil-A kitchen. Use ONLY these computed facts. Do not invent sales dollars, times, or crew counts.\n"+
+      "Reply with ONLY JSON: {\"now\":\"...\",\"doThis\":\"...\",\"nextHit\":\"...\"}\n"+
+      "now: the clock and whether a rush is on, using clock and rush.state.\n"+
+      "doThis: what to do right now — put people on stations, prep, or hold — using onStations, target, peopleHere, and peakCrew.\n"+
+      "nextHit: what rush or sales band hits next and when, using hotFrom, hotTo, peakCrew, and peakPer15. If rushes are done, say so.\n"+
+      "Facts:\n"+JSON.stringify(facts);
+    grokJson(prompt).then(function(obj){
+      var brief=cleanBrief(obj,b)||localBrief(b);
+      return persistBrief(brief);
+    }).catch(function(){ /* keep the on-screen brief built from the forecast */ }).then(function(){
+      briefBusy=false; if(view==="simple") paintBrief(); else if(view==="editor") renderForecast();
+    });
+  }
+
+  // =====================================================================
   // SCHEDULE PDF IMPORT
   // =====================================================================
   var importBusy=false, importCtl=null;
@@ -1260,14 +1434,17 @@
 
   function openImport(){
     openSheet(function(s){
-      shHead(s,"Upload the schedule","Pick the schedule PDF. Claude reads it and loads everyone's shifts. It takes about a minute.");
-      if(!sampleFn){
+      shHead(s,"Upload the schedule","Pick the weekly schedule PDF. Grok reads it and adds the names and shifts.");
+      if(!grokKey()){
         var p=document.createElement("p");p.className="sd";p.style.color="#ffd27a";
-        p.textContent="Reading schedule PDFs isn't set up on this site yet. For now, add people with Team list.";
-        s.appendChild(p); shCancel(s,"OK"); return;
+        p.textContent="Add a Grok key first. It stays on this device only.";
+        s.appendChild(p);
+        shBtn(s,{icon:"🔑",cls:"primary",label:"Add Grok key",fn:openGrokKey});
+        shCancel(s,"Close");
+        return;
       }
-      var p2=document.createElement("p");p2.className="sd";p2.textContent="The first time, a box pops up asking to let Claude help. Tap Allow.";s.appendChild(p2);
       shBtn(s,{icon:"📄",cls:"primary",label:"Choose the PDF",fn:function(){$("pdf-file").click();}});
+      shBtn(s,{label:"Replace Grok key",fn:openGrokKey});
       shCancel(s);
     });
   }
@@ -1284,30 +1461,32 @@
   $("pdf-file").addEventListener("change",function(e){
     var f=e.target.files[0]; e.target.value=""; if(!f) return;
     importBusy=true; importProgress("Opening the PDF…","");
+    if(!grokKey()){ importBusy=false; openImport(); return; }
     f.arrayBuffer().then(function(buf){ return pdfExtract(buf); }).then(function(r){
       var text=r.text.replace(/--- page \d+ ---/g,"").trim();
       importCtl=new AbortController();
-      var opts={signal:importCtl.signal,modelTier:"default",onText:function(u){var n=(u.text.match(/\["\d{4}/g)||[]).length;var el=$("imp-sub");if(el)el.textContent=n?"Found "+n+" shifts so far…":"Reading…";}};
-      importProgress("Claude is reading the schedule…","This can take a minute. Keep this screen open.",true);
-      if(text.length>=150) return sampleFn.json(schedPrompt(r.text.slice(0,56000)),opts).then(function(res){return {res:res,file:f.name};});
-      // scanned PDF (no text) -> send page pictures
-      return sampleFn.limits().catch(function(){return null;}).then(function(l){
-        if(!l||!l.images) throw {code:"no_text"};
-        return pdfImages(r.pdf,Math.min(l.images.maxCount,4)).then(function(imgs){ opts.images=imgs; return sampleFn.json(schedPrompt(""),opts); }).then(function(res){return {res:res,file:f.name};});
+      var opts={signal:importCtl.signal};
+      importProgress("Grok is reading the schedule…","This can take a minute. Keep this screen open.",true);
+      if(text.length>=150) return grokJson(schedPrompt(r.text.slice(0,56000)),opts).then(function(res){return {res:res,file:f.name};});
+      return pdfImages(r.pdf,4).then(function(blobs){ return Promise.all(blobs.map(blobToDataUrl)); }).then(function(urls){
+        if(!urls.length) throw {code:"no_text"};
+        opts.images=urls;
+        return grokJson(schedPrompt(""),opts).then(function(res){return {res:res,file:f.name};});
       });
     }).then(function(o){
       importBusy=false;
       var shifts=cleanShifts(o.res);
-      if(!shifts.length){ importFail("Claude couldn't find any shifts in that PDF. Make sure it's the weekly schedule, not a labor report."); return; }
+      if(!shifts.length){ importFail("No shifts were found in that PDF. Make sure it's the weekly schedule, not a labor report."); return; }
       importPreview(shifts,o.file);
     }).catch(function(err){
       importBusy=false;
       var c=err&&err.code;
       if(c==="cancelled"){ closeSheet(); return; }
-      if(c==="not_granted"||c==="sampling_disabled"){ importFail("Claude wasn't allowed to help on this screen. Send the PDF to Josh (or Claude in chat) instead."); return; }
+      if(c==="no_key"){ openImport(); return; }
+      if(c==="bad_key"){ importFail("That Grok key was rejected. Open Grok key and paste a new one."); return; }
       if(c==="invalid_json") { importFail("The schedule was too big to read in one go. Try a PDF with just one week."); return; }
       if(c==="rate_limited") { importFail("Too many tries right now. Wait a few minutes and try again."); return; }
-      if(c==="no_text") { importFail("That PDF is a picture/scan and this screen can't read pictures. Export the schedule as a regular PDF, or send it to Josh."); return; }
+      if(c==="no_text") { importFail("That PDF is a scan and Grok could not read the pages. Export the schedule as a normal PDF and try again."); return; }
       if(err&&err.message==="load") { importFail("Couldn't open the PDF reader. Check the internet and try again."); return; }
       importFail("Something went wrong reading that file. Try again, or send the PDF to Josh.");
     });
@@ -1501,6 +1680,8 @@
   $("sales-btn").addEventListener("click",openSalesUpload);
   $("s-fill").addEventListener("click",autoDeploy);
   $("s-helpbtn").addEventListener("click",function(){var h=$("s-helpbox");h.style.display=h.style.display==="none"?"block":"none";});
+  $("s-grok").addEventListener("click",openGrokKey);
+  $("grok-btn").addEventListener("click",openGrokKey);
   $("roster-search").addEventListener("input",renderRoster);
   $("fc-select").addEventListener("change",function(){setFcDate(this.value);renderAll();});
   $("fc-toggle").addEventListener("click",function(){ui.chartOpen=!ui.chartOpen;saveUi();renderAll();});
@@ -1556,6 +1737,7 @@
   var hv=(location.hash||"").replace(/^#\/?/,"");
   var VIEWS=["simple","editor","tv-deploy","tv-tasks","tv-rotate"];
   setView(VIEWS.indexOf(hv)>-1?hv:(VIEWS.indexOf(ui.view)>-1?ui.view:"simple"));
+  loadLocalGrokKey().then(function(){ if(grokKey()) maybeRefreshBrief(true); });
 
   function goLocal(){
     loadLocal(); renderAll(); setSync("local","Local only");

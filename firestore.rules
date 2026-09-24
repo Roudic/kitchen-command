@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// Kitchen Command — only these signed-in accounts can read or write anything.
+// Replace the emails with the accounts you create in Firebase → Authentication → Users.
+// Keep this list short. Anyone NOT on it gets nothing, even if they create an account.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isStaff() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'store06123@example.com',   // the shared store iPad login
+          'you@example.com'           // your own login
+        ];
+    }
+
+    match /{document=**} {
+      allow read, write: if isStaff();
+    }
+  }
+}

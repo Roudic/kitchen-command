@@ -1,0 +1,5 @@
+# Team names + store sales. Never commit this — the GitHub repo is public.
+seed-data.json
+*.csv
+.DS_Store
+node_modules/

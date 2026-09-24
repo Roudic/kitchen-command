@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kitchen Command · Load data</title>
+<style>
+  :root{color-scheme:dark}
+  body{margin:0;background:#0B0C0E;color:#F2F3F4;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;padding:24px 16px}
+  .box{max-width:520px;margin:0 auto;background:#141619;border:1px solid #2A2E33;border-radius:18px;padding:22px}
+  h1{margin:0 0 6px;font-size:24px} p{color:#9AA0A8;line-height:1.45}
+  input[type=email],input[type=password]{width:100%;box-sizing:border-box;background:#1B1E22;border:2px solid #2A2E33;color:#F2F3F4;border-radius:12px;padding:12px;font-size:17px;margin-bottom:10px}
+  button{width:100%;border:none;border-radius:12px;background:#E51636;color:#fff;font-size:18px;font-weight:800;min-height:54px;cursor:pointer;margin-top:6px}
+  button:disabled{opacity:.5}
+  label{display:flex;gap:10px;align-items:center;font-size:16px;padding:8px 0}
+  label input{width:22px;height:22px;accent-color:#E51636}
+  .log{margin-top:14px;font-size:14px;color:#9AA0A8;white-space:pre-wrap}
+  .step{display:none}.step.on{display:block}
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>Load starting data</h1>
+  <p>One-time setup. Loads the sales, forecast, and team you had on claude.ai into your new database. Pick <b>seed-data.json</b> from your computer — it is not stored on the website.</p>
+
+  <div class="step on" id="s-login">
+    <input type="email" id="email" placeholder="Email">
+    <input type="password" id="pw" placeholder="Password">
+    <button id="login">Sign in</button>
+  </div>
+
+  <div class="step" id="s-load">
+    <label><input type="checkbox" id="c-sales" checked> Sales + forecast</label>
+    <label><input type="checkbox" id="c-roster" checked> Team list</label>
+    <label><input type="checkbox" id="c-tasks"> Tasks</label>
+    <label><input type="checkbox" id="c-board"> Current board (who's on what)</label>
+    <input type="file" id="file" accept=".json,application/json" hidden>
+    <button id="pick">Choose seed-data.json and load</button>
+  </div>
+
+  <div class="log" id="log"></div>
+</div>
+
+<script type="module">
+  import { firebaseConfig } from "./firebase-config.js";
+  const V = "10.12.2";
+  const log = (t) => { document.getElementById("log").textContent += t + "\n"; };
+  if (String(firebaseConfig.apiKey).startsWith("PASTE")) { log("Fill in firebase-config.js first."); throw new Error("not configured"); }
+  const { initializeApp } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`);
+  const A = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`);
+  const F = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`);
+  const app = initializeApp(firebaseConfig);
+  const auth = A.getAuth(app), fs = F.getFirestore(app);
+
+  A.onAuthStateChanged(auth, (u) => {
+    document.getElementById("s-login").classList.toggle("on", !u);
+    document.getElementById("s-load").classList.toggle("on", !!u);
+    if (u) log("Signed in as " + u.email);
+  });
+  document.getElementById("login").onclick = async () => {
+    try { await A.signInWithEmailAndPassword(auth, document.getElementById("email").value.trim(), document.getElementById("pw").value); }
+    catch (e) { log("Sign-in failed: " + e.code); }
+  };
+  document.getElementById("pick").onclick = () => document.getElementById("file").click();
+  document.getElementById("file").onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const data = JSON.parse(await f.text());
+    const want = [];
+    if (document.getElementById("c-sales").checked) want.push("sales", "forecast");
+    if (document.getElementById("c-roster").checked) want.push("roster");
+    if (document.getElementById("c-tasks").checked) want.push("tasks");
+    if (document.getElementById("c-board").checked) want.push("board");
+    const btn = document.getElementById("pick"); btn.disabled = true;
+    let n = 0;
+    try {
+      for (const col of want) {
+        const docs = data[col] || {};
+        for (const [id, body] of Object.entries(docs)) {
+          await F.setDoc(F.doc(fs, col, id), body);
+          n++;
+        }
+        log(`✓ ${col}: ${Object.keys(docs).length}`);
+      }
+      log(`Done — ${n} records loaded. Open the main page.`);
+    } catch (x) {
+      log("Stopped: " + (x.code || x.message) + ". If it says permission-denied, check the emails in your Firestore rules.");
+    }
+    btn.disabled = false;
+  };
+</script>
+</body>
+</html>

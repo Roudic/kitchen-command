@@ -593,7 +593,15 @@
   function min12(m){var h=Math.floor(m/60),mm=("0"+(m%60)).slice(-2);return t12(("0"+h).slice(-2)+":"+mm);}
   function bandIdx(v){var b=(fcMeta&&fcMeta.bands)||[],i=0;b.forEach(function(x,k){if(v>=x.min)i=k;});return i;}
   function trainedOn(p,st){var k=skillFor(st);if(!k)return true;var s=String(p.skill||"").toLowerCase();return s===k||(p.trained||[]).indexOf(k)>-1;}
-  function onStationsCount(){var n=0;stationList().forEach(function(s){n+=occupants(s).length;});return n;}
+  function onStationsCount(){
+    var n=0;
+    stationList().forEach(function(s){
+      var c=occupants(s).length;
+      if(!c) return;
+      n+=c>=2?c-1:c;
+    });
+    return n;
+  }
   function targetCrew(dayName){var fc=forecast[dayName||fcDay];var x=fc&&fc.dayparts&&fc.dayparts[board.daypart];return x?x.peakCrew:stationList().length;}
 
   function logFeed(msg){

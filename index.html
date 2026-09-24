@@ -364,7 +364,11 @@
 
     <div class="s-card">
       <div class="s-step"><span class="s-num">4</span><h2 class="s-title">Tasks</h2></div>
-      <p class="s-help">Tap the button when a task is finished.</p>
+      <p class="s-help">Type a task, then tap Add. Tap the button when it is finished.</p>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <input class="field" id="s-new-task" placeholder="Add a task (e.g. Dish pit reset)…" style="flex:1;">
+        <button class="btn primary" id="s-add-task">Add</button>
+      </div>
       <div id="s-tasks"></div>
     </div>
 
@@ -397,6 +401,7 @@
       <div class="fc-chips" id="fc-chips"></div>
       <span class="rushline" id="rushline"></span>
       <button class="btn ghost" id="sales-btn" style="min-height:32px;padding:5px 10px;">📈 Upload sales</button>
+      <button class="btn ghost" id="fc-review" style="min-height:32px;padding:5px 10px;">Day review</button>
       <button class="btn ghost" id="fc-toggle" style="min-height:32px;padding:5px 10px;">Chart ▾</button>
     </div>
     <div id="fc-body">
@@ -404,6 +409,7 @@
       <div class="legend" id="fc-legend"></div>
     </div>
     <div class="fc-note" id="fc-note"></div>
+    <div class="s-brief" id="day-review" style="display:none"></div>
   </div>
 
   <div class="grid editor-only">
@@ -433,6 +439,7 @@
       <div class="card">
         <div class="dep-head">
           <h2 class="dep-title"><span id="dp-title">Lunch</span> deployment<small id="dp-leader"></small></h2>
+          <button class="btn" id="layout-btn">Edit positions</button>
           <button class="btn" id="leader-btn">Set leader</button>
           <button class="btn danger" id="clear-btn">Clear</button>
           <button class="btn primary" id="auto-btn">Auto-Deploy</button>
@@ -481,7 +488,8 @@
     breakfast:{"Primary Area":["Primary 1","Primary 2","Biscuits","Hash & Egg"],"Secondary Area":["Secondary 1","Secondary 2"],"Prep Area":["Prep"],"Raw Area":["Machines","Breading"]},
     lunch:{"Primary Area":["Primary 1","Primary 2","Buns","Fries"],"Secondary Area":["Secondary 1","Secondary 2"],"Prep Area":["Prep"],"Raw Area":["Machines","Breading"]}
   };
-  LAYOUT.afternoon = LAYOUT.lunch; LAYOUT.dinner = LAYOUT.lunch;
+  function cloneAreas(src){ var o={}; Object.keys(src||{}).forEach(function(a){ o[a]=(src[a]||[]).slice(); }); return o; }
+  LAYOUT.afternoon = cloneAreas(LAYOUT.lunch); LAYOUT.dinner = cloneAreas(LAYOUT.lunch);
   var AREA_COLOR = {"Primary Area":"var(--a-primary)","Secondary Area":"var(--a-secondary)","Prep Area":"var(--a-prep)","Raw Area":"var(--a-raw)"};
   var CAPS = {"Primary 1":3,"Primary 2":3,"Secondary 1":2,"Secondary 2":2,"Breading":2};
   var STATION_SKILL = {"Primary 1":"primary","Primary 2":"primary","Secondary 1":"secondary","Secondary 2":"secondary","Buns":"buns","Fries":"fries","Biscuits":"biscuits","Hash & Egg":"hash_egg","Prep":"prep","Machines":"machines","Breading":"breading"};
@@ -491,7 +499,7 @@
     breakfast:["Primary 1","Secondary 1","Machines","Breading","Prep","Hash & Egg","Biscuits","Primary 1","Secondary 2","Primary 2","Breading","Secondary 1","Primary 2","Primary 1","Secondary 2","Primary 2"],
     other:["Primary 1","Secondary 1","Machines","Breading","Prep","Fries","Buns","Primary 1","Secondary 2","Primary 2","Breading","Secondary 1","Primary 2","Primary 1","Secondary 2","Primary 2"]
   };
-  var LS_KEY = "kitchen_command_live_fallback_v1", LS_UI = "kitchen_command_ui_v1";
+  var LS_KEY = "kitchen_command_live_fallback_v1", LS_UI = "kitchen_command_ui_v1", LS_LAYOUT = "kitchen_command_layout_v1";
   var DOWS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
   var DP_LABEL = {breakfast:"Breakfast",lunch:"Lunch",afternoon:"Afternoon",dinner:"Dinner"};
   var BAND_COLORS = ["#3A3F45","#5E656E","#A07A22","#C8552E","#E51636"];
@@ -517,6 +525,34 @@
   function initials(n){var p=String(n||"?").trim().split(/\s+/);return (p[0][0]||"")+(p.length>1?p[p.length-1][0]:"");}
   function skillName(k){k=String(k||"").toLowerCase();for(var i=0;i<SKILLS.length;i++){if(SKILLS[i][0]===k)return SKILLS[i][1];}return k.replace(/_/g," ").replace(/\b\w/g,function(c){return c.toUpperCase();});}
   function stationList(){var l=LAYOUT[board.daypart]||LAYOUT.lunch,o=[];Object.keys(l).forEach(function(a){o=o.concat(l[a]);});return o;}
+  var layoutCaps={}, layoutSkills={};
+  function areaColor(area){ return AREA_COLOR[area] || "var(--a-primary)"; }
+  function capFor(st){ return (layoutCaps[st]!=null?layoutCaps[st]:CAPS[st]) || 1; }
+  function skillFor(st){
+    if(layoutSkills[st]) return layoutSkills[st];
+    if(STATION_SKILL[st]) return STATION_SKILL[st];
+    var n=String(st||"").toLowerCase();
+    for(var i=0;i<SKILLS.length;i++){ if(n.indexOf(SKILLS[i][1].toLowerCase())>-1) return SKILLS[i][0]; }
+    return "";
+  }
+  function layoutBody(){
+    var dayparts={};
+    ["breakfast","lunch","afternoon","dinner"].forEach(function(dp){ dayparts[dp]=cloneAreas(LAYOUT[dp]); });
+    return {dayparts:dayparts,caps:layoutCaps,skills:layoutSkills,updatedAt:new Date().toISOString()};
+  }
+  function applyLayout(data){
+    if(!data||!data.dayparts) return;
+    ["breakfast","lunch","afternoon","dinner"].forEach(function(dp){ if(data.dayparts[dp]) LAYOUT[dp]=cloneAreas(data.dayparts[dp]); });
+    layoutCaps=data.caps||{}; layoutSkills=data.skills||{};
+  }
+  function loadLayoutLocal(){ try{ var r=JSON.parse(localStorage.getItem(LS_LAYOUT)||"null"); if(r) applyLayout(r); }catch(e){} }
+  function saveLayout(){
+    var body=layoutBody();
+    if(!db){ try{ localStorage.setItem(LS_LAYOUT, JSON.stringify(body)); }catch(e){} }
+    else db.doc("config/layout").set(body).catch(function(e){ toast("Couldn't save the layout ("+(e&&e.code)+")"); });
+    renderAll();
+  }
+  loadLayoutLocal();
   function occupants(st){return (board.assignments[st]||[]).filter(function(id){return person(id);});}
   function placedAt(pid){var a=board.assignments||{};var sts=stationList();for(var i=0;i<sts.length;i++){if((a[sts[i]]||[]).indexOf(pid)>-1)return sts[i];}return null;}
   function clone(o){return JSON.parse(JSON.stringify(o));}
@@ -526,7 +562,7 @@
   function toMin(t){return +t.slice(0,2)*60 + +t.slice(3);}
   function min12(m){var h=Math.floor(m/60),mm=("0"+(m%60)).slice(-2);return t12(("0"+h).slice(-2)+":"+mm);}
   function bandIdx(v){var b=(fcMeta&&fcMeta.bands)||[],i=0;b.forEach(function(x,k){if(v>=x.min)i=k;});return i;}
-  function trainedOn(p,st){var k=STATION_SKILL[st];if(!k)return true;var s=String(p.skill||"").toLowerCase();return s===k||(p.trained||[]).indexOf(k)>-1;}
+  function trainedOn(p,st){var k=skillFor(st);if(!k)return true;var s=String(p.skill||"").toLowerCase();return s===k||(p.trained||[]).indexOf(k)>-1;}
   function onStationsCount(){var n=0;stationList().forEach(function(s){n+=occupants(s).length;});return n;}
   function targetCrew(dayName){var fc=forecast[dayName||fcDay];var x=fc&&fc.dayparts&&fc.dayparts[board.daypart];return x?x.peakCrew:stationList().length;}
 
@@ -565,7 +601,7 @@
     if(prev) board.assignments[prev]=board.assignments[prev].filter(function(x){return x!==pid;});
     board.assignments[st]=occupants(st).concat([pid]);
     if(board.leaderId===pid) board.leaderId=null;
-    var cap=CAPS[st]||1;
+    var cap=capFor(st);
     if(occupants(st).length>cap) toast(st+" is over its cap ("+cap+")");
     else if(!trainedOn(p,st)) toast(p.name+" isn't marked trained on "+st);
     saveBoard();
@@ -579,6 +615,7 @@
     if(!avail.length){toast("Nobody available — everyone active is already placed");return;}
     undoSnap={assignments:clone(board.assignments),leaderId:board.leaderId};
     var seq=(board.daypart==="breakfast"?FILL.breakfast:FILL.other).filter(function(s){return stationList().indexOf(s)>-1;});
+    stationList().forEach(function(s){ if(seq.indexOf(s)<0) seq.push(s); });
     var cur={}; stationList().forEach(function(s){cur[s]=occupants(s).length;});
     var placedNames=[], untrained=0;
     function pass(requireTrained){
@@ -587,7 +624,7 @@
         if(need<=0||!avail.length) return;
         occ[st]=(occ[st]||0)+1;
         if(cur[st]>=occ[st]) return;
-        var k=STATION_SKILL[st], idx=-1;
+        var k=skillFor(st), idx=-1;
         for(var i=0;i<avail.length;i++){ if(String(avail[i].skill||"").toLowerCase()===k){idx=i;break;} }
         if(idx<0) for(var j=0;j<avail.length;j++){ if(trainedOn(avail[j],st)){idx=j;break;} }
         if(idx<0 && !requireTrained) idx=0;
@@ -820,12 +857,12 @@
     var wrap=$("station-board"), layout=LAYOUT[board.daypart]||LAYOUT.lunch;
     wrap.innerHTML="";
     Object.keys(layout).forEach(function(area){
-      var a=document.createElement("div"); a.className="area"; a.style.setProperty("--ac",AREA_COLOR[area]);
+      var a=document.createElement("div"); a.className="area"; a.style.setProperty("--ac",areaColor(area));
       var n=0; layout[area].forEach(function(s){n+=occupants(s).length;});
       a.innerHTML='<div class="area-title">'+esc(area.toUpperCase())+'<span class="ct">'+n+' on</span></div>';
       var grid=document.createElement("div"); grid.className="stations";
       layout[area].forEach(function(st){
-        var ids=occupants(st), cap=CAPS[st]||1;
+        var ids=occupants(st), cap=capFor(st);
         var cell=document.createElement("div");
         cell.className="station"+(ids.length?"":" empty")+(ids.length>cap?" over":"")+(selected?" ready":"");
         cell.setAttribute("data-st",st);
@@ -893,7 +930,7 @@
     // deploy board
     var layout=LAYOUT[board.daypart]||LAYOUT.lunch, html="";
     Object.keys(layout).forEach(function(area){
-      html+='<div class="tv-area" style="--ac:'+AREA_COLOR[area]+'"><h3>'+esc(area.replace(" Area","").toUpperCase())+'</h3>';
+      html+='<div class="tv-area" style="--ac:'+areaColor(area)+'"><h3>'+esc(area.replace(" Area","").toUpperCase())+'</h3>';
       layout[area].forEach(function(st){
         var ids=occupants(st);
         if(!ids.length){ html+='<div class="tv-st open"><div class="sn">'+esc(st.toUpperCase())+'</div><div class="pn">OPEN</div></div>'; return; }
@@ -920,7 +957,6 @@
     if(view==="simple") renderSimple();
     else if(view==="editor"){ renderForecast(); renderRoster(); renderStations(); renderTasks(); }
     else renderTV();
-    maybeRefreshBrief(false);
   }
 
   function setView(v){
@@ -992,7 +1028,7 @@
       Object.keys(layout).forEach(function(area){
         shSec(s,area.toUpperCase());
         layout[area].forEach(function(st){
-          var occ=occupants(st), cap=CAPS[st]||1, names=occ.map(function(id){return person(id).name.split(" ")[0];});
+          var occ=occupants(st), cap=capFor(st), names=occ.map(function(id){return person(id).name.split(" ")[0];});
           var small=occ.length?("Now: "+names.join(", ")+(occ.length>=cap?(cap===1?" — they'll come off":" — full"):"")):"Open";
           shBtn(s,{label:st,small:small,tag:trainedOn(p,st)?'<span class="ok-tag">✓ TRAINED</span>':'<span class="no-tag">NOT TRAINED</span>',fn:function(){ placeOn(p.id,st); closeSheet(); }});
         });
@@ -1002,7 +1038,7 @@
   }
   function placeOn(pid,st){
     snap();
-    var cap=CAPS[st]||1, occ=occupants(st).filter(function(x){return x!==pid;});
+    var cap=capFor(st), occ=occupants(st).filter(function(x){return x!==pid;});
     if(occ.length>=cap && cap===1){ board.assignments[st]=[]; }
     assign(pid,st);
     logFeed(person(pid).name+" → "+st);
@@ -1010,7 +1046,7 @@
   }
   function stationSheet(st){
     openSheet(function(s){
-      var occ=occupants(st), cap=CAPS[st]||1;
+      var occ=occupants(st), cap=capFor(st);
       shHead(s,st,occ.length?"On it now: "+occ.map(function(id){return person(id).name;}).join(", "):"Nobody is on it yet.");
       var free=roster.filter(function(p){return p.status==="active"&&!placedAt(p.id)&&p.id!==board.leaderId;});
       free.sort(function(a,b){return (trainedOn(b,st)-trainedOn(a,st))||a.name.localeCompare(b.name);});
@@ -1185,7 +1221,7 @@
     Object.keys(layout).forEach(function(area){
       layout[area].forEach(function(st){
         var occ=occupants(st), b=document.createElement("button");
-        b.className="s-row"+(occ.length?"":" open"); b.style.setProperty("--ac",AREA_COLOR[area]);
+        b.className="s-row"+(occ.length?"":" open"); b.style.setProperty("--ac",areaColor(area));
         var who=occ.length?occ.map(function(id){var p=person(id);return esc(p.name)+(p.status==="break"?'<span class="w">ON BREAK</span>':'')+(trainedOn(p,st)?'':'<span class="w">NOT TRAINED</span>');}).join("<br>"):"OPEN — tap to fill";
         b.innerHTML='<span class="sn">'+esc(st)+'</span><span class="who">'+who+'</span><span class="chev">›</span>';
         b.addEventListener("click",function(){stationSheet(st);});
@@ -1232,23 +1268,45 @@
     if(i<0||j<=i) throw {code:"invalid_json"};
     return JSON.parse(s.slice(i,j+1));
   }
-  function grokChat(messages, opts){
-    var key=grokKey();
-    if(!key) return Promise.reject({code:"no_key"});
+  function grokReady(){ return !!(grokKey() || (window.__kc && window.__kc.signedIn)); }
+  function grokText(data){
+    var text=data&&data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
+    if(!text) throw {code:"invalid_json"};
+    return text;
+  }
+  function grokHttp(r){
+    if(r.status===401||r.status===403) throw {code:"bad_key"};
+    if(r.status===429) throw {code:"rate_limited"};
+    if(!r.ok) throw {code:"grok"};
+    return r.json().then(grokText);
+  }
+  function grokDirect(messages, opts, key){
     return fetch(GROK_URL,{
       method:"POST",
       signal:opts&&opts.signal,
       headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
       body:JSON.stringify({model:(opts&&opts.model)||GROK_MODEL,temperature:0,messages:messages})
-    }).then(function(r){
-      if(r.status===401||r.status===403) throw {code:"bad_key"};
-      if(r.status===429) throw {code:"rate_limited"};
-      if(!r.ok) throw {code:"grok"};
-      return r.json();
-    }).then(function(data){
-      var text=data&&data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
-      if(!text) throw {code:"invalid_json"};
-      return text;
+    }).then(grokHttp);
+  }
+  function grokProxy(messages, opts, token){
+    var url=window.__kc&&window.__kc.grokProxy;
+    if(!url) return Promise.reject({code:"no_key"});
+    return fetch(url,{
+      method:"POST",
+      signal:opts&&opts.signal,
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+      body:JSON.stringify({model:(opts&&opts.model)||GROK_MODEL,messages:messages})
+    }).then(grokHttp);
+  }
+  function grokChat(messages, opts){
+    var tokenP=(window.__kc&&window.__kc.getIdToken)?window.__kc.getIdToken():Promise.resolve("");
+    return tokenP.then(function(token){
+      if(token) return grokProxy(messages, opts, token).catch(function(err){
+        if(grokKey()) return grokDirect(messages, opts, grokKey());
+        throw err;
+      });
+      if(!grokKey()) return Promise.reject({code:"no_key"});
+      return grokDirect(messages, opts, grokKey());
     });
   }
   function grokJson(prompt, opts){
@@ -1270,7 +1328,7 @@
       s.appendChild(inp);
       shBtn(s,{icon:"✓",cls:"primary",label:grokKey()?"Replace key":"Save key on this device",fn:function(){
         var v=inp.value.trim(); if(!v){inp.focus();return;}
-        setGrokKey(v); toast("Grok key saved on this device"); closeSheet(); maybeRefreshBrief(true); renderAll();
+        setGrokKey(v); toast("Grok key saved on this device"); closeSheet(); renderAll();
       }});
       if(grokKey()) shBtn(s,{label:"Clear key from this device",fn:function(){ setGrokKey(""); aiBrief=null; toast("Grok key removed"); closeSheet(); renderAll(); }});
       shCancel(s,"Close");
@@ -1281,6 +1339,53 @@
     var r=rushStatus();
     if(!r) return isoDate()+"|none|"+board.daypart;
     return [isoDate(), r.state, r.dp||"", r.from||"", r.to||"", board.daypart].join("|");
+  }
+  function bandMin(name, fallback){
+    var bands=(fcMeta&&fcMeta.bands)||BANDS_DEFAULT, n=fallback;
+    bands.forEach(function(b){ if(b.name===name) n=b.min; });
+    return n;
+  }
+  function durLabel(mins){ var h=Math.floor(mins/60), m=mins%60; return h?(h+"h"+(m?" "+m+"m":"")):(m+"m"); }
+  function groupSlots(slots, pred){
+    var groups=[], cur=null;
+    slots.forEach(function(s){
+      var m=toMin(s.t);
+      if(pred(s)){
+        if(!cur) cur={from:m,to:m+15,peak:s.avg};
+        else { cur.to=m+15; if(s.avg>cur.peak) cur.peak=s.avg; }
+      } else if(cur){ groups.push(cur); cur=null; }
+    });
+    if(cur) groups.push(cur);
+    return groups;
+  }
+  function dayRhythm(){
+    var fc=forecast[todayName];
+    if(!fc||!fc.slots||!fc.slots.length) return null;
+    var slots=fc.slots.slice().sort(function(a,b){return a.t<b.t?-1:1;});
+    var busyAt=bandMin("Busy",350), slowAt=bandMin("Steady",250);
+    var busy=groupSlots(slots,function(s){return s.avg>=busyAt;}).filter(function(g){return g.to-g.from>=30;});
+    var slow=groupSlots(slots,function(s){return s.avg<slowAt;}).filter(function(g){return g.to-g.from>=30;});
+    var ramps=busy.map(function(g){
+      var line=Math.round(busyAt*0.55), ramp=g.from;
+      var before=slots.filter(function(s){return toMin(s.t)<g.from;});
+      for(var i=before.length-1;i>=0;i--){
+        if(before[i].avg<line) break;
+        ramp=toMin(before[i].t);
+      }
+      return {ramp:ramp,busy:g.from,until:g.to,mins:g.to-g.from};
+    });
+    return {busyAt:busyAt,slowAt:slowAt,busy:busy,slow:slow,ramps:ramps};
+  }
+  function rhythmText(){
+    var ry=dayRhythm();
+    if(!ry) return {busy:"Upload sales to see when it gets busy.",slow:"Slow times show up after a sales upload.",ramp:"Ramp-up times show up after a sales upload."};
+    var busy=ry.busy.length?ry.busy.map(function(g){return min12(g.from)+"–"+min12(g.to)+" ("+durLabel(g.to-g.from)+")";}).join(" · "):"No stretch stays at the busy band ("+money(ry.busyAt)+" per 15).";
+    var slow=ry.slow.length?ry.slow.map(function(g){return min12(g.from)+"–"+min12(g.to)+" ("+durLabel(g.to-g.from)+")";}).join(" · "):"No slow stretch longer than 30 minutes.";
+    var ramp=ry.ramps.length?ry.ramps.map(function(g){
+      if(g.ramp>=g.busy) return "Jumps to busy at "+min12(g.busy)+" and holds "+durLabel(g.mins)+".";
+      return "Starts climbing at "+min12(g.ramp)+", busy by "+min12(g.busy)+", stays busy "+durLabel(g.mins)+".";
+    }).join(" "):"No busy window to ramp into.";
+    return {busy:busy,slow:slow,ramp:ramp};
   }
   function briefFacts(){
     var r=rushStatus(), fc=forecast[todayName]||{}, dps={};
@@ -1296,13 +1401,15 @@
       target:targetCrew(forecast[todayName]?todayName:fcDay),
       peopleHere:roster.filter(function(p){return p.status==="active";}).length,
       rush:r?{state:r.state,daypart:r.dp||"",starts:r.from?min12(r.from):"",until:r.to?min12(r.to):"",minutesUntil:r.inMin,peakCrew:r.crew,peakPer15:r.peak}:null,
-      dayparts:dps
+      dayparts:dps,
+      rhythm:rhythmText()
     };
   }
   function localBrief(boundary){
     var r=rushStatus(), on=onStationsCount(), target=targetCrew(forecast[todayName]?todayName:fcDay);
     var here=roster.filter(function(p){return p.status==="active";}).length;
     var now, doThis, nextHit;
+    var pace=rhythmText();
     if(!r){ now="No forecast for today."; doThis="Upload sales so the board knows the crew target."; nextHit="No rush time is loaded yet."; }
     else if(r.state==="in"){
       now=DP_LABEL[r.dp]+" rush is on until "+min12(r.to)+".";
@@ -1313,32 +1420,30 @@
       doThis="Prep and hold. "+DP_LABEL[board.daypart]+" target is "+target+" on stations.";
       nextHit=DP_LABEL[r.dp]+" hits at "+min12(r.from)+" · "+money(r.peak)+" per 15 · "+r.crew+" BOH.";
     } else { now="Rushes are done for today."; doThis="Keep a close crew and finish the task list."; nextHit="No more rush window today."; }
-    return {now:now,doThis:doThis,nextHit:nextHit,boundary:boundary,source:"board",at:new Date().toISOString()};
+    return {now:now,doThis:doThis,nextHit:nextHit,busy:pace.busy,slow:pace.slow,ramp:pace.ramp,boundary:boundary,source:"board",at:new Date().toISOString()};
   }
   function cleanBrief(obj, boundary){
     if(!obj||typeof obj!=="object") return null;
     var now=String(obj.now||"").trim(), doThis=String(obj.doThis||"").trim(), nextHit=String(obj.nextHit||"").trim();
-    if(!now||!doThis||!nextHit) return null;
+    var pace=rhythmText();
+    var busy=String(obj.busy||pace.busy||"").trim(), slow=String(obj.slow||pace.slow||"").trim(), ramp=String(obj.ramp||pace.ramp||"").trim();
+    if(!now||!doThis||!nextHit||!busy||!slow||!ramp) return null;
     function clip(s){return s.slice(0,280);}
     var facts=briefFacts(), allowed={};
     function add(n){ if(n==null||isNaN(+n)) return; var r=Math.round(+n); allowed["$"+r.toLocaleString()]=1; allowed["$"+r]=1; }
     if(facts.rush) add(facts.rush.peakPer15);
     Object.keys(facts.dayparts||{}).forEach(function(k){ add(facts.dayparts[k].sales); add(facts.dayparts[k].peakPer15); });
-    var blob=now+" "+doThis+" "+nextHit, bad=(blob.match(/\$[\d,]+/g)||[]).some(function(d){return !allowed[d];});
+    var blob=now+" "+doThis+" "+nextHit+" "+busy+" "+slow+" "+ramp, bad=(blob.match(/\$[\d,]+/g)||[]).some(function(d){return !allowed[d];});
     if(bad) return null;
-    return {now:clip(now),doThis:clip(doThis),nextHit:clip(nextHit),boundary:boundary,source:"grok",at:new Date().toISOString()};
+    return {now:clip(now),doThis:clip(doThis),nextHit:clip(nextHit),busy:clip(busy),slow:clip(slow),ramp:clip(ramp),boundary:boundary,source:"grok",at:new Date().toISOString()};
   }
-  function shownBrief(){
-    var b=briefBoundary();
-    if(aiBrief&&aiBrief.boundary===b) return aiBrief;
-    if(fcMeta&&fcMeta.aiBrief&&fcMeta.aiBrief.boundary===b) return fcMeta.aiBrief;
-    return localBrief(b);
-  }
+  function shownBrief(){ return aiBrief; }
   function paintBrief(){
-    var el=$("s-brief"); if(!el) return;
+    var el=$("day-review"); if(!el) return;
     var b=shownBrief();
+    if(!b){ el.style.display="none"; return; }
     el.style.display="block";
-    el.innerHTML='<div class="k">NOW</div><div class="v">'+esc(b.now)+'</div><div class="k">DO THIS</div><div class="v">'+esc(b.doThis)+'</div><div class="k">NEXT HIT</div><div class="v">'+esc(b.nextHit)+'</div>';
+    el.innerHTML='<div class="k">BUSY</div><div class="v">'+esc(b.busy||"")+'</div><div class="k">SLOW</div><div class="v">'+esc(b.slow||"")+'</div><div class="k">RAMP UP</div><div class="v">'+esc(b.ramp||"")+'</div><div class="k">NOW</div><div class="v">'+esc(b.now)+'</div><div class="k">DO THIS</div><div class="v">'+esc(b.doThis)+'</div><div class="k">NEXT HIT</div><div class="v">'+esc(b.nextHit)+'</div>';
   }
   function persistBrief(brief){
     aiBrief=brief;
@@ -1347,25 +1452,25 @@
     if(fcMeta) return db.doc("forecast/meta").update({aiBrief:brief}).catch(function(){ var body=clone(fcMeta); body.aiBrief=brief; return db.doc("forecast/meta").set(body); });
     return db.doc("forecast/meta").set({aiBrief:brief});
   }
-  function maybeRefreshBrief(force){
-    if(!grokKey()||briefBusy) return;
-    var b=briefBoundary();
-    if(!force && aiBrief && aiBrief.boundary===b && aiBrief.source==="grok") return;
-    if(!force && fcMeta && fcMeta.aiBrief && fcMeta.aiBrief.boundary===b && fcMeta.aiBrief.source==="grok"){ aiBrief=fcMeta.aiBrief; return; }
-    if(!forecast[todayName]) return;
+  function requestDayReview(){
+    if(!forecast[todayName]||!(forecast[todayName].slots||[]).length){ toast("Upload sales first."); openSalesUpload(); return; }
+    if(!grokKey()){ openGrokKey(); return; }
+    if(briefBusy) return;
     briefBusy=true;
-    var facts=briefFacts();
-    var prompt="Write a shift-leader brief for a Chick-fil-A kitchen. Use ONLY these computed facts. Do not invent sales dollars, times, or crew counts.\n"+
-      "Reply with ONLY JSON: {\"now\":\"...\",\"doThis\":\"...\",\"nextHit\":\"...\"}\n"+
-      "now: the clock and whether a rush is on, using clock and rush.state.\n"+
-      "doThis: what to do right now — put people on stations, prep, or hold — using onStations, target, peopleHere, and peakCrew.\n"+
-      "nextHit: what rush or sales band hits next and when, using hotFrom, hotTo, peakCrew, and peakPer15. If rushes are done, say so.\n"+
+    var b=briefBoundary(), facts=briefFacts();
+    var btn=$("fc-review"); if(btn) btn.textContent="Reading…";
+    var prompt="Write a shift-leader day review for a Chick-fil-A kitchen. Use ONLY these computed facts. Do not invent sales dollars, times, or crew counts. Use the rhythm lines for busy, slow, and ramp.\n"+
+      "Reply with ONLY JSON: {\"busy\":\"...\",\"slow\":\"...\",\"ramp\":\"...\",\"now\":\"...\",\"doThis\":\"...\",\"nextHit\":\"...\"}\n"+
+      "busy: when it gets busy and how long each stretch lasts, from rhythm.busy.\n"+
+      "slow: the slow times, from rhythm.slow.\n"+
+      "ramp: when sales start climbing and when they become busy, from rhythm.ramp.\n"+
+      "now, doThis, nextHit: what is happening at the clock and what to do.\n"+
       "Facts:\n"+JSON.stringify(facts);
     grokJson(prompt).then(function(obj){
       var brief=cleanBrief(obj,b)||localBrief(b);
       return persistBrief(brief);
-    }).catch(function(){ /* keep the on-screen brief built from the forecast */ }).then(function(){
-      briefBusy=false; if(view==="simple") paintBrief(); else if(view==="editor") renderForecast();
+    }).catch(function(){ toast("Couldn't get the review. Check the Grok key."); }).then(function(){
+      briefBusy=false; if(btn) btn.textContent="Day review"; paintBrief();
     });
   }
 
@@ -1434,9 +1539,9 @@
   function openImport(){
     openSheet(function(s){
       shHead(s,"Upload the schedule","Pick the weekly schedule PDF. Grok reads it and adds the names and shifts.");
-      if(!grokKey()){
+      if(!grokReady()){
         var p=document.createElement("p");p.className="sd";p.style.color="#ffd27a";
-        p.textContent="Add a Grok key first. It stays on this device only.";
+        p.textContent="Sign in, or add a Grok key on this device.";
         s.appendChild(p);
         shBtn(s,{icon:"🔑",cls:"primary",label:"Add Grok key",fn:openGrokKey});
         shCancel(s,"Close");
@@ -1460,7 +1565,7 @@
   $("pdf-file").addEventListener("change",function(e){
     var f=e.target.files[0]; e.target.value=""; if(!f) return;
     importBusy=true; importProgress("Opening the PDF…","");
-    if(!grokKey()){ importBusy=false; openImport(); return; }
+    if(!grokReady()){ importBusy=false; openImport(); return; }
     f.arrayBuffer().then(function(buf){ return pdfExtract(buf); }).then(function(r){
       var text=r.text.replace(/--- page \d+ ---/g,"").trim();
       importCtl=new AbortController();
@@ -1669,6 +1774,76 @@
 
   // ---------- wiring ----------
   $("ap-skill").innerHTML='<option value="">Primary skill…</option>'+SKILLS.map(function(s){return '<option value="'+s[0]+'">'+s[1]+'</option>';}).join("");
+  function areaName(raw){
+    var n=String(raw||"").trim(); if(!n) return "";
+    if(!/area$/i.test(n)) n=n+" Area";
+    return n.replace(/\s+/g," ");
+  }
+  function findArea(dp, station){
+    var lay=LAYOUT[dp]||{}; var found=null;
+    Object.keys(lay).forEach(function(a){ if(lay[a].indexOf(station)>-1) found=a; });
+    return found;
+  }
+  function openLayout(){
+    var dp=board.daypart||"lunch";
+    function draw(){
+      openSheet(function(s){
+        shHead(s,"Edit "+DP_LABEL[dp]+" positions","Add a name, pick an area, or type a new one. This daypart stays its own layout.");
+        var sel=document.createElement("select"); sel.className="field"; sel.style.marginBottom="8px";
+        ["breakfast","lunch","afternoon","dinner"].forEach(function(k){ var o=document.createElement("option"); o.value=k; o.textContent=DP_LABEL[k]; if(k===dp) o.selected=true; sel.appendChild(o); });
+        sel.addEventListener("change",function(){ dp=sel.value; draw(); });
+        s.appendChild(sel);
+        var lay=LAYOUT[dp]||{};
+        Object.keys(lay).forEach(function(area){
+          lay[area].forEach(function(st){
+            var row=document.createElement("div"); row.style.cssText="display:flex;gap:8px;margin-bottom:8px;";
+            var name=document.createElement("input"); name.className="field"; name.value=st; name.style.flex="1";
+            var ren=document.createElement("button"); ren.className="btn"; ren.textContent="Rename";
+            ren.addEventListener("click",function(){
+              var next=name.value.trim(); if(!next||next===st) return;
+              var areaKey=findArea(dp,st); if(!areaKey) return;
+              LAYOUT[dp][areaKey]=LAYOUT[dp][areaKey].map(function(x){return x===st?next:x;});
+              if(layoutCaps[st]!=null){ layoutCaps[next]=layoutCaps[st]; delete layoutCaps[st]; }
+              if(layoutSkills[st]){ layoutSkills[next]=layoutSkills[st]; delete layoutSkills[st]; }
+              if(!layoutSkills[next]) layoutSkills[next]=skillFor(next);
+              if(board.assignments[st]){ board.assignments[next]=board.assignments[st]; delete board.assignments[st]; saveBoard(); }
+              saveLayout(); logFeed(st+" renamed to "+next); draw();
+            });
+            var rm=document.createElement("button"); rm.className="btn danger"; rm.textContent="Remove";
+            rm.addEventListener("click",function(){
+              var areaKey=findArea(dp,st); if(!areaKey) return;
+              LAYOUT[dp][areaKey]=LAYOUT[dp][areaKey].filter(function(x){return x!==st;});
+              if(!LAYOUT[dp][areaKey].length) delete LAYOUT[dp][areaKey];
+              delete board.assignments[st]; saveBoard(); saveLayout(); logFeed(st+" removed from "+DP_LABEL[dp]); draw();
+            });
+            row.appendChild(name); row.appendChild(ren); row.appendChild(rm); s.appendChild(row);
+          });
+        });
+        var add=document.createElement("div"); add.style.marginTop="8px";
+        var nn=document.createElement("input"); nn.className="field"; nn.placeholder="New position name"; nn.style.marginBottom="8px";
+        var areas=document.createElement("select"); areas.className="field"; areas.style.marginBottom="8px";
+        Object.keys(lay).forEach(function(a){ var o=document.createElement("option"); o.value=a; o.textContent=a; areas.appendChild(o); });
+        var custom=document.createElement("option"); custom.value="__new"; custom.textContent="Type a new area"; areas.appendChild(custom);
+        var anew=document.createElement("input"); anew.className="field"; anew.placeholder="New area name"; anew.style.marginBottom="8px"; anew.style.display="none";
+        areas.addEventListener("change",function(){ anew.style.display=areas.value==="__new"?"block":"none"; });
+        var go=document.createElement("button"); go.className="btn primary"; go.textContent="Add position"; go.style.width="100%";
+        go.addEventListener("click",function(){
+          var station=nn.value.trim(); if(!station){ nn.focus(); return; }
+          var area=areas.value==="__new"?areaName(anew.value):areas.value;
+          if(!area){ anew.focus(); return; }
+          if(!LAYOUT[dp][area]) LAYOUT[dp][area]=[];
+          if(LAYOUT[dp][area].indexOf(station)<0) LAYOUT[dp][area].push(station);
+          layoutCaps[station]=1;
+          layoutSkills[station]=skillFor(station);
+          saveLayout(); logFeed(station+" added to "+DP_LABEL[dp]); draw();
+        });
+        add.appendChild(nn); add.appendChild(areas); add.appendChild(anew); add.appendChild(go); s.appendChild(add);
+        shCancel(s,"Close");
+      });
+    }
+    draw();
+  }
+
   $("daypart-select").addEventListener("change",function(){board.daypart=this.value;saveBoard();});
   $("view-seg").addEventListener("click",function(e){var b=e.target.closest("button[data-view]");if(b)setView(b.getAttribute("data-view"));});
   $("tv-seg").addEventListener("click",function(e){var b=e.target.closest("button[data-view]");if(b)setView(b.getAttribute("data-view"));});
@@ -1701,6 +1876,14 @@
     tasks.push(t); $("new-task").value=""; saveTask(t);
   });
   $("new-task").addEventListener("keydown",function(e){if(e.key==="Enter")$("add-task").click();});
+  $("s-add-task").addEventListener("click",function(){
+    var n=$("s-new-task").value.trim(); if(!n) return;
+    var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now()};
+    tasks.push(t); $("s-new-task").value=""; saveTask(t);
+  });
+  $("s-new-task").addEventListener("keydown",function(e){if(e.key==="Enter")$("s-add-task").click();});
+  $("fc-review").addEventListener("click",requestDayReview);
+  $("layout-btn").addEventListener("click",openLayout);
   $("import-btn").addEventListener("click",function(){$("csv-file").click();});
   $("csv-file").addEventListener("change",function(e){
     var f=e.target.files[0]; if(!f) return; var r=new FileReader();
@@ -1736,7 +1919,7 @@
   var hv=(location.hash||"").replace(/^#\/?/,"");
   var VIEWS=["simple","editor","tv-deploy","tv-tasks","tv-rotate"];
   setView(VIEWS.indexOf(hv)>-1?hv:(VIEWS.indexOf(ui.view)>-1?ui.view:"simple"));
-  loadLocalGrokKey().then(function(){ if(grokKey()) maybeRefreshBrief(true); });
+  loadLocalGrokKey();
 
   function goLocal(){
     loadLocal(); renderAll(); setSync("local","Local only");
@@ -1780,6 +1963,10 @@
     db.collection("forecast").onSnapshot(function(s){
       forecast={}; fcMeta=null;
       s.docs.forEach(function(d){if(d.id==="meta")fcMeta=d.data();else forecast[d.id]=d.data();});
+      renderAll();
+    },onErr);
+    db.doc("config/layout").onSnapshot(function(s){
+      if(s.exists) applyLayout(s.data());
       renderAll();
     },onErr);
   }).catch(goLocal);

@@ -15,3 +15,6 @@ export const FIRESTORE_DATABASE_ID = "kitchen";
 
 // Shown on the sign-in screen.
 export const STORE_NAME = "Hueytown #06123";
+
+// Public address of the signed-in Grok proxy. The key stays in Firebase, not here.
+export const GROK_PROXY_URL = "https://us-central1-boh-kitchen-command.cloudfunctions.net/grok";

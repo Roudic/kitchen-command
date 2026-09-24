@@ -17,6 +17,9 @@
       "boh-kitchen-command.web.app"
     ]
   },
+  "functions": {
+    "source": "functions"
+  },
   "hosting": {
     "public": ".",
     "ignore": [

@@ -5,3 +5,4 @@ seed-data.json
 node_modules/
 firestore-rules-analysis.txt
 grok-key.local
+functions/node_modules/

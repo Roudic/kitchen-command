@@ -6,7 +6,7 @@
 // If firebase-config.js still has the PASTE_ placeholders, the app stops
 // and waits. Board, team, tasks, and sales are never saved on this device.
 
-import { firebaseConfig, STORE_NAME, FIRESTORE_DATABASE_ID } from "./firebase-config.js";
+import { firebaseConfig, STORE_NAME, FIRESTORE_DATABASE_ID, GROK_PROXY_URL } from "./firebase-config.js";
 
 const V = "10.12.2";
 const configured = !String(firebaseConfig.apiKey || "").startsWith("PASTE");
@@ -141,6 +141,8 @@ function makeDb(fs, F) {
 
 // ---------- boot ----------
 async function boot() {
+  window.__kc.grokProxy = GROK_PROXY_URL;
+  window.__kc.getIdToken = () => Promise.resolve("");
   injectCss();
   if (!configured) {
     showBlocked(
@@ -171,6 +173,8 @@ async function boot() {
   A.onAuthStateChanged(auth, (user) => {
     if (user) {
       hideLogin();
+      window.__kc.signedIn = true;
+      window.__kc.getIdToken = () => auth.currentUser ? auth.currentUser.getIdToken() : Promise.resolve("");
       if (!resolved) {
         resolved = true;
         window.__kc.resolveDb(makeDb(fs, F));

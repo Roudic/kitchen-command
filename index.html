@@ -78,8 +78,14 @@
   @media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr);}}
   .roster-panel{position:sticky;top:calc(var(--tb) + 12px);max-height:calc(100vh - var(--tb) - 28px);display:flex;flex-direction:column;}
   @media (max-width:860px){.roster-panel{position:static;max-height:none;}}
-  .roster-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
-  .roster-head .mini{margin-left:auto;display:flex;gap:6px;font-size:11px;font-weight:700;}
+  .roster-head{display:flex;align-items:flex-start;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+  .roster-head .h{min-width:0;}
+  .roster-head .mini{margin-left:auto;display:flex;gap:6px;font-size:11px;font-weight:700;flex-wrap:wrap;justify-content:flex-end;}
+  .team-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:8px;}
+  .team-actions .btn{white-space:normal;min-width:0;padding:8px 6px;line-height:1.2;text-align:center;}
+  .team-actions .btn:last-of-type{grid-column:1 / -1;}
+  .roster-panel .dp-row{margin-top:0;grid-template-columns:repeat(2,minmax(0,1fr));}
+  .roster-panel .dp-btn{font-size:12.5px;min-height:42px;padding:4px 2px;line-height:1.15;white-space:normal;}
   .mini span{padding:3px 7px;border-radius:6px;background:var(--panel-2);}
   .roster-scroll{flex:1;min-height:0;overflow-y:auto;margin:0 -4px;padding:0 4px;}
   @media (max-width:860px){.roster-scroll{max-height:420px;}}
@@ -439,10 +445,10 @@
         <div class="mini"><span class="st-active" id="m-active">0</span><span class="st-break" id="m-break">0</span></div>
       </div>
       <input class="field" id="roster-search" placeholder="Search name or skill…" style="margin-bottom:8px;">
-      <div style="display:flex;gap:8px;margin-bottom:8px;">
-        <button class="btn" id="toggle-add" style="flex:1;">+ Add</button>
-        <button class="btn" id="sched-btn" style="flex:1;">Schedule PDF</button>
-        <button class="btn" id="adv-callin" style="flex:1;">Call in</button>
+      <div class="team-actions">
+        <button class="btn" id="toggle-add">+ Add</button>
+        <button class="btn" id="sched-btn">Schedule PDF</button>
+        <button class="btn" id="adv-callin">Call in</button>
         <button class="btn" id="grok-btn">Grok</button>
         <button class="btn" id="import-btn">CSV</button>
         <input type="file" id="csv-file" accept=".csv" hidden>
@@ -875,7 +881,7 @@
     var due=dueToday(board.daypart);
     var hereN=due.filter(function(p){return clockOf(p)!=="off";}).length;
     $("roster-count").textContent="("+due.length+" "+DP_LABEL[board.daypart]+")";
-    $("m-active").textContent=due.filter(function(p){return clockOf(p)==="active";}).length+" on the clock";
+    $("m-active").textContent=due.filter(function(p){return clockOf(p)==="active";}).length+" in";
     $("m-break").textContent=due.filter(function(p){return clockOf(p)==="break";}).length+" break";
     $("roster-filter").textContent=shortDate(today)+" · "+DP_LABEL[board.daypart]+" · "+due.length+" scheduled · "+hereN+" on the clock";
     $("adv-dps").innerHTML=["breakfast","lunch","afternoon","dinner"].map(function(k){return '<button type="button" class="dp-btn'+(k===board.daypart?' on':'')+'" data-dp="'+k+'">'+DP_LABEL[k]+'</button>';}).join("");

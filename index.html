@@ -442,6 +442,7 @@
       <div style="display:flex;gap:8px;margin-bottom:8px;">
         <button class="btn" id="toggle-add" style="flex:1;">+ Add</button>
         <button class="btn" id="sched-btn" style="flex:1;">Schedule PDF</button>
+        <button class="btn" id="adv-callin" style="flex:1;">Call in</button>
         <button class="btn" id="grok-btn">Grok</button>
         <button class="btn" id="import-btn">CSV</button>
         <input type="file" id="csv-file" accept=".csv" hidden>
@@ -451,6 +452,7 @@
         <select class="field" id="ap-skill"></select>
         <button class="btn primary" id="ap-save">Add to roster</button>
       </div>
+      <p class="hint" id="roster-filter" style="margin:0 0 8px;"></p>
       <div class="roster-scroll" id="roster-list"></div>
       <div class="hint">Drag a name onto a station, or tap the name then tap the station. Drag someone back here to pull them off.</div>
     </div>
@@ -840,13 +842,18 @@
   // ---------- render: roster ----------
   function renderRoster(){
     var q=$("roster-search").value.trim().toLowerCase(), list=$("roster-list");
-    $("roster-count").textContent="("+roster.length+")";
-    $("m-active").textContent=roster.filter(function(p){return p.status==="active";}).length+" active";
-    $("m-break").textContent=roster.filter(function(p){return p.status==="break";}).length+" break";
-    var vis=roster.filter(function(p){return !q||p.name.toLowerCase().indexOf(q)>-1||skillName(p.skill).toLowerCase().indexOf(q)>-1;});
-    var groups=[["AVAILABLE",function(p){return p.status==="active"&&!placedAt(p.id)&&p.id!==board.leaderId;}],["LEADER",function(p){return p.id===board.leaderId&&p.status!=="off";}],["ON STATIONS",function(p){return placedAt(p.id)&&p.status!=="off";}],["ON BREAK",function(p){return p.status==="break"&&!placedAt(p.id)&&p.id!==board.leaderId;}],["OFF",function(p){return p.status==="off";}]];
+    var today=isoDate(), dayDoc=schedule[today], todayShifts=(dayDoc&&dayDoc.shifts)||[];
+    var due=dueToday(board.daypart);
+    var hereN=due.filter(function(p){return p.status==="active"||p.status==="break";}).length;
+    $("roster-count").textContent="("+due.length+" "+DP_LABEL[board.daypart]+")";
+    $("m-active").textContent=due.filter(function(p){return p.status==="active";}).length+" active";
+    $("m-break").textContent=due.filter(function(p){return p.status==="break";}).length+" break";
+    $("roster-filter").textContent=shortDate(today)+" · "+DP_LABEL[board.daypart]+" · "+due.length+" scheduled · "+hereN+" here";
+    var vis=due.filter(function(p){return !q||p.name.toLowerCase().indexOf(q)>-1||skillName(p.skill).toLowerCase().indexOf(q)>-1;});
+    var groups=[["HERE",function(p){return p.status==="active"&&!placedAt(p.id)&&p.id!==board.leaderId;}],["LEADER",function(p){return p.id===board.leaderId&&p.status!=="off";}],["ON STATIONS",function(p){return placedAt(p.id)&&p.status!=="off";}],["ON BREAK",function(p){return p.status==="break"&&!placedAt(p.id)&&p.id!==board.leaderId;}],["NOT IN YET",function(p){return p.status==="off";}]];
     list.innerHTML="";
-    if(!roster.length){list.innerHTML='<div class="hint">No team members yet — add one or import a CSV.</div>';return;}
+    if(!todayShifts.length){list.innerHTML='<div class="hint">No schedule for '+esc(shortDate(today))+'. Upload the PDF, or call someone in.</div>';return;}
+    if(!due.length){list.innerHTML='<div class="hint">Nobody on the schedule for '+esc(DP_LABEL[board.daypart])+' on '+esc(shortDate(today))+'.</div>';return;}
     groups.forEach(function(g){
       var ppl=vis.filter(g[1]).sort(function(a,b){return a.name.localeCompare(b.name);});
       if(!ppl.length) return;
@@ -858,7 +865,8 @@
     var el=document.createElement("div"), where=placedAt(p.id);
     el.className="person"+(p.id===selected?" selected":"")+(where?" placed":"")+(p.status==="off"?" is-off":"");
     var stc=p.status==="active"?"st-active":(p.status==="break"?"st-break":"st-off");
-    el.innerHTML='<div class="avatar">'+esc(initials(p.name))+'</div><div class="p-meta"><div class="p-name">'+esc(p.name)+'</div><div class="p-skill">'+esc(skillName(p.skill))+(where?' · on '+esc(where):(shiftsToday(p.id).length?' · '+esc(shiftLabel(shiftsToday(p.id)[0])):''))+'</div></div><button class="st-btn '+stc+'" aria-label="Change status">'+esc(p.status.toUpperCase())+'</button>';
+    var sh=shiftsToday(p.id).filter(function(x){return shiftHitsDaypart(x, board.daypart);});
+    el.innerHTML='<div class="avatar">'+esc(initials(p.name))+'</div><div class="p-meta"><div class="p-name">'+esc(p.name)+'</div><div class="p-skill">'+esc(skillName(p.skill))+(where?' · on '+esc(where):(sh.length?' · '+esc(shiftLabel(sh[0]))+(sh[0].calledIn?' · called in':''):''))+'</div></div><button class="st-btn '+stc+'" aria-label="Change status">'+esc(p.status.toUpperCase())+'</button>';
     el.querySelector(".st-btn").addEventListener("pointerdown",function(ev){ev.stopPropagation();});
     el.querySelector(".st-btn").addEventListener("click",function(ev){
       ev.stopPropagation();
@@ -1039,11 +1047,17 @@
     return [17*60, 23*60+59];
   }
   function hhmm(m){ return ("0"+Math.floor(m/60)).slice(-2)+":"+("0"+(m%60)).slice(-2); }
+  function shiftDayparts(sh){
+    if(sh&&sh.dayparts&&sh.dayparts.length) return sh.dayparts.slice();
+    return ["breakfast","lunch","afternoon","dinner"].filter(function(dp){
+      if(!sh||!sh.start||!sh.end) return false;
+      var w=daypartWindow(dp), a=toMin(sh.start), b=toMin(sh.end);
+      if(b<=a) b+=24*60;
+      return a<w[1] && b>w[0];
+    });
+  }
   function shiftHitsDaypart(sh, dp){
-    if(!sh||!sh.start||!sh.end) return false;
-    var w=daypartWindow(dp), a=toMin(sh.start), b=toMin(sh.end);
-    if(b<=a) b+=24*60;
-    return a<w[1] && b>w[0];
+    return shiftDayparts(sh).indexOf(dp)>-1;
   }
   function shiftsToday(pid){var s=schedule[isoDate()];if(!s||!s.shifts)return [];return s.shifts.filter(function(x){return x.personId===pid;});}
   function dueToday(dp){
@@ -1063,7 +1077,7 @@
     var doc={date:today,shifts:(prev.shifts||[]).slice(),source:prev.source||"Call-in",importedAt:prev.importedAt||new Date().toISOString()};
     if(doc.shifts.some(function(sh){ return sh.personId===p.id && shiftHitsDaypart(sh, board.daypart); })){ toast(p.name+" is already on this daypart"); return; }
     var w=daypartWindow(board.daypart);
-    doc.shifts.push({personId:p.id,name:p.name,start:hhmm(w[0]),end:hhmm(w[1]),position:"Call-in",dept:"BOH",calledIn:true});
+    doc.shifts.push({personId:p.id,name:p.name,start:hhmm(w[0]),end:hhmm(w[1]),position:"Call-in",dept:"BOH",calledIn:true,dayparts:[board.daypart]});
     if(p.status!=="active"&&p.status!=="break") p.status="off";
     savePerson(p);
     saveTodaySchedule(doc).then(function(){ logFeed(p.name+" called in for "+DP_LABEL[board.daypart]); toast(p.name+" added to "+DP_LABEL[board.daypart]); renderAll(); });
@@ -1645,7 +1659,7 @@
 
   function openImport(){
     openSheet(function(s){
-      shHead(s,"Upload the schedule","Pick the weekly schedule PDF. Grok reads it and adds the names and shifts.");
+      shHead(s,"Upload the schedule","Pick the weekly schedule PDF. A new upload replaces the schedule already saved. Each shift stays tied to its date and daypart.");
       if(!grokReady()){
         var p=document.createElement("p");p.className="sd";p.style.color="#ffd27a";
         p.textContent="Sign in, or add a Grok key on this device.";
@@ -1714,7 +1728,7 @@
       var rmap={}; roster.forEach(function(p){rmap[normName(p.name)]=1;});
       var fresh=Object.keys(names).filter(function(n){return !rmap[normName(n)];});
       openSheet(function(s){
-        shHead(s,"Does this look right?",fileName);
+        shHead(s,"Does this look right?",fileName+" · this replaces the schedule already saved");
         var st=document.createElement("div");st.className="imp-stat";
         st.innerHTML="<b>"+use.length+"</b> shifts · <b>"+Object.keys(names).length+"</b> people<br>"+(days.length?fmtDay(days[0])+" to "+fmtDay(days[days.length-1]):"");
         s.appendChild(st);
@@ -1744,15 +1758,24 @@
       }
       x.personId=id;
     });
-    var byDay={}; shifts.forEach(function(x){(byDay[x.date]=byDay[x.date]||[]).push({personId:x.personId,name:x.name,start:x.start,end:x.end,position:x.position,dept:x.dept});});
+    var byDay={}, importedAt=new Date().toISOString();
+    shifts.forEach(function(x){
+      var sh={personId:x.personId,name:x.name,start:x.start,end:x.end,position:x.position,dept:x.dept};
+      sh.dayparts=shiftDayparts(sh);
+      (byDay[x.date]=byDay[x.date]||[]).push(sh);
+    });
+    var gone=Object.keys(schedule).filter(function(d){return !byDay[d];});
     var chain=Promise.resolve();
     if(db){
       newPeople.forEach(function(p){ var b=clone(p); delete b.id; chain=chain.then(function(){return db.collection("roster").doc(p.id).set(b);}); });
-      Object.keys(byDay).forEach(function(d){ chain=chain.then(function(){return db.collection("schedule").doc(d).set({date:d,shifts:byDay[d],source:fileName,importedAt:new Date().toISOString()});}); });
-    } else { Object.keys(byDay).forEach(function(d){schedule[d]={date:d,shifts:byDay[d]};}); saveLocal(); }
+      gone.forEach(function(d){ chain=chain.then(function(){return db.collection("schedule").doc(d).delete();}); });
+      Object.keys(byDay).forEach(function(d){ chain=chain.then(function(){return db.collection("schedule").doc(d).set({date:d,shifts:byDay[d],source:fileName,importedAt:importedAt});}); });
+    }
     chain.then(function(){
       importBusy=false;
-      Object.keys(byDay).forEach(function(d){schedule[d]={date:d,shifts:byDay[d]};});
+      schedule={};
+      Object.keys(byDay).forEach(function(d){schedule[d]={date:d,shifts:byDay[d],source:fileName,importedAt:importedAt};});
+      if(!db) saveLocal();
       logFeed("Schedule loaded: "+shifts.length+" shifts ("+newPeople.length+" new names)");
       var today=(byDay[isoDate()]||[]).length;
       openSheet(function(s){ shHead(s,"✓ Schedule saved",shifts.length+" shifts over "+Object.keys(byDay).length+" days. "+(today?today+" shifts today.":"")+(newPeople.length?" Added "+newPeople.length+" new names.":"")); shBtn(s,{cls:"primary",label:"Done",fn:closeSheet}); });
@@ -1984,6 +2007,7 @@
   });
   $("new-task").addEventListener("keydown",function(e){if(e.key==="Enter")$("add-task").click();});
   $("s-callin").addEventListener("click",openCallIn);
+  $("adv-callin").addEventListener("click",openCallIn);
   $("s-add-task").addEventListener("click",function(){
     var n=$("s-new-task").value.trim(); if(!n) return;
     var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now()};

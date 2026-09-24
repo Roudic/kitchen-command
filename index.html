@@ -189,6 +189,24 @@
   .tv-st.open{border:2px dashed #6b1a28;}
   .tv-st.open .pn{color:#ff4d6a;}
   #tv-tasks{display:none;}
+  #tv-forecast{display:none;}
+  body.tv.show-deploy #tv-board{display:grid;} body.tv.show-tasks #tv-board{display:none;} body.tv.show-forecast #tv-board{display:none;}
+  body.tv.show-tasks #tv-tasks{display:block;}
+  body.tv.show-forecast #tv-forecast{display:block;}
+  #tv-forecast .tv-fc-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:18px;}
+  #tv-forecast h2{margin:0;font-size:42px;letter-spacing:.4px;}
+  #tv-forecast .sub{font-size:20px;color:var(--text-dim);font-weight:700;}
+  #tv-forecast .tv-chips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px;}
+  #tv-forecast .chip{background:var(--panel);border:2px solid var(--line);border-radius:16px;padding:14px 16px;}
+  #tv-forecast .chip.on{border-color:var(--red);box-shadow:0 0 0 3px rgba(229,22,54,.25);}
+  #tv-forecast .chip .n{display:block;font-size:14px;font-weight:800;letter-spacing:.4px;color:var(--text-dim);}
+  #tv-forecast .chip .v{display:block;font-size:32px;font-weight:900;margin-top:4px;}
+  #tv-forecast .chip .s{display:block;font-size:16px;color:var(--text-dim);font-weight:700;margin-top:4px;}
+  #tv-forecast svg{width:100%;height:auto;display:block;}
+  #fc-chart svg .fc-bar, #tv-forecast svg .fc-bar{transform-box:fill-box;transform-origin:center bottom;animation:barPop .7s cubic-bezier(.16,1,.3,1) both;}
+  #fc-chart svg .fc-now, #tv-forecast svg .fc-now{animation:nowPulse 1.6s ease-in-out infinite;}
+  @keyframes barPop{0%{transform:scaleY(.04);}70%{transform:scaleY(1.08);}100%{transform:scaleY(1);}}
+  @keyframes nowPulse{50%{opacity:.35;}}
   .tv-task{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:24px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin-bottom:12px;}
   .tv-task .tn{font-size:28px;font-weight:800;}
   .tv-task .tn small{display:block;font-size:15px;color:var(--text-dim);font-weight:600;margin-top:2px;}
@@ -320,6 +338,7 @@
   <div class="seg" id="tv-seg">
     <button data-view="tv-deploy">Deploy</button>
     <button data-view="tv-tasks">Tasks</button>
+    <button data-view="tv-forecast">Forecast</button>
     <button data-view="tv-rotate">Rotate</button>
   </div>
   <span class="sync" id="sync"><span class="dot"></span><span id="sync-text">Connecting…</span></span>
@@ -472,6 +491,7 @@
 
   <div id="tv-board"></div>
   <div id="tv-tasks"></div>
+  <div id="tv-forecast"></div>
   <footer id="footer">Kitchen Command · Hueytown #06123</footer>
 </div>
 
@@ -733,7 +753,7 @@
     rl.textContent=fcDate===today&&r&&r.state!=="done"?rt.big:""; rl.className="rushline"+(r&&r.state==="in"?" hot":"");
     var act=sales[fcDate], wd=weekdayOf(fcDate), fc=forecast[wd];
     $("fc-title").textContent=act?"ACTUAL":"FORECAST";
-    if(!fc&&!act){$("fc-chips").innerHTML='<span style="font-size:12px;color:var(--text-faint);">'+(wd==="Sunday"?"Closed Sundays.":"No forecast loaded.")+'</span>';$("fc-chart").innerHTML="";$("fc-legend").innerHTML="";$("fc-note").textContent="";return;}
+    if(!fc&&!act){$("fc-chips").innerHTML='<span style="font-size:12px;color:var(--text-faint);">'+(wd==="Sunday"?"Closed Sundays.":"No forecast loaded.")+'</span>';$("fc-chart").innerHTML="";$("fc-chart").removeAttribute("data-key");$("fc-legend").innerHTML="";$("fc-note").textContent="";return;}
     var html="";
     ["breakfast","lunch","afternoon","dinner"].forEach(function(k){
       var x=fc&&fc.dayparts[k], a=act&&act.dayparts&&act.dayparts[k];
@@ -763,44 +783,58 @@
     if(br&&br.source==="grok") note+=" · "+br.now+" "+br.doThis+" "+br.nextHit;
     $("fc-note").textContent=note;
     if(!ui.chartOpen) return;
-    // chart: union of time slots
+    var built=buildSalesChart(900,168);
+    var key=built.key;
+    if($("fc-chart").getAttribute("data-key")!==key){
+      $("fc-chart").setAttribute("data-key",key);
+      $("fc-chart").innerHTML=built.svg+'<div id="tip"></div>';
+    }
+    var svg=$("fc-chart").querySelector("svg"), tip=$("tip");
+    if(!svg||!tip) return;
+    svg.onpointermove=function(e){
+      var rr=e.target.closest("rect[data-i]"); if(!rr||!fcMeta){tip.style.display="none";return;}
+      var i=+rr.getAttribute("data-i"), t=built.times[i], f=built.fmap[t], b=(fcMeta.bands||BANDS_DEFAULT)[bandIdx(built.vals[i])];
+      tip.innerHTML=act?('<b>'+t12(t)+'</b> · sold '+money(built.vals[i])+(f?' · forecast '+money(f.avg):'')+'<br>'+esc(b.name)+' level → '+b.crew+' BOH'):('<b>'+t12(t)+'</b> · avg '+money(f.avg)+' · high '+money(f.max)+'<br>'+esc(b.name)+' → '+b.crew+' BOH');
+      var box=$("fc-chart").getBoundingClientRect(); tip.style.display="block";
+      tip.style.left=Math.min(box.width-190,Math.max(0,e.clientX-box.left+10))+"px"; tip.style.top=(e.clientY-box.top-44)+"px";
+    };
+    svg.onpointerleave=function(){tip.style.display="none";};
+    $("fc-legend").innerHTML=((fcMeta&&fcMeta.bands)||[]).map(function(b,i){var nx=fcMeta.bands[i+1];return '<span><i style="background:'+BAND_COLORS[i]+'"></i>'+esc(b.name)+' '+(nx?money(b.min)+'–'+money(nx.min):money(b.min)+'+')+' · '+b.crew+' BOH</span>';}).join("")+(act&&fc?'<span><i style="background:#F2F3F4;height:2px;vertical-align:3px;"></i>Forecast</span>':'');
+  }
+  function buildSalesChart(W,H,date){
+    date=date||fcDate;
+    var act=sales[date], fc=forecast[weekdayOf(date)];
     var fmap={}, amap={}, ts={};
     (fc&&fc.slots||[]).forEach(function(x){fmap[x.t]=x;ts[x.t]=x.dp;});
     (act&&act.slots||[]).forEach(function(x){amap[x.t]=x;ts[x.t]=x.dp;});
     var times=Object.keys(ts).sort(), n=times.length;
     var vals=times.map(function(t){return act?(amap[t]?amap[t].v:0):(fmap[t]?fmap[t].avg:0);});
-    var W=900,H=150,pl=36,pr=6,pt=8,pb=22;
-    var maxV=Math.max(800,Math.max.apply(null,vals.concat(times.map(function(t){return fmap[t]?fmap[t].avg:0;}))));
+    var pl=44,pr=10,pt=16,pb=28;
+    var maxV=Math.max(800,Math.max.apply(null,vals.concat(times.map(function(t){return fmap[t]?fmap[t].avg:0;})).concat([0])));
     maxV=Math.ceil(maxV/200)*200;
     var bw=(W-pl-pr)/Math.max(1,n), y=function(v){return pt+(H-pt-pb)*(1-v/maxV);}, g='';
-    for(var v=0;v<=maxV;v+=200){g+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="#2A2E33"/><text x="'+(pl-6)+'" y="'+(y(v)+4)+'" fill="#5E656E" font-size="10" text-anchor="end">'+(v?('$'+v):'0')+'</text>';}
+    g+='<defs><filter id="barGlow'+W+'" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#E51636" flood-opacity=".85"/></filter></defs>';
+    for(var v=0;v<=maxV;v+=200){g+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="#2A2E33"/><text x="'+(pl-8)+'" y="'+(y(v)+4)+'" fill="#5E656E" font-size="12" text-anchor="end">'+(v?('$'+v):'0')+'</text>';}
     var prevDp=null;
     times.forEach(function(t,i){
       var X=pl+i*bw, dp=ts[t];
-      if(dp!==prevDp){ if(i>0) g+='<line x1="'+X+'" x2="'+X+'" y1="'+pt+'" y2="'+(H-pb)+'" stroke="#3a3f45" stroke-dasharray="3 3"/>'; g+='<text x="'+(X+3)+'" y="'+(H-6)+'" fill="#9AA0A8" font-size="10" font-weight="700">'+DP_LABEL[dp]+'</text>'; prevDp=dp; }
+      if(dp!==prevDp){ if(i>0) g+='<line x1="'+X+'" x2="'+X+'" y1="'+pt+'" y2="'+(H-pb)+'" stroke="#3a3f45" stroke-dasharray="3 3"/>'; g+='<text x="'+(X+4)+'" y="'+(H-8)+'" fill="#9AA0A8" font-size="13" font-weight="800">'+DP_LABEL[dp]+'</text>'; prevDp=dp; }
       var val=vals[i]; if(!val) return;
-      g+='<rect data-i="'+i+'" x="'+(X+1)+'" y="'+y(val)+'" width="'+Math.max(1,bw-2)+'" height="'+(H-pb-y(val))+'" rx="2" fill="'+BAND_COLORS[bandIdx(val)]+'" opacity="'+(dp===board.daypart?1:.5)+'"/>';
+      var hot=dp===board.daypart;
+      g+='<rect class="fc-bar" data-i="'+i+'" style="animation-delay:'+(i*16)+'ms" x="'+(X+1)+'" y="'+y(val)+'" width="'+Math.max(2,bw-2)+'" height="'+(H-pb-y(val))+'" rx="3" fill="'+BAND_COLORS[bandIdx(val)]+'" opacity="'+(hot?1:.42)+'"'+(hot?' filter="url(#barGlow'+W+')"':'')+'/>';
     });
     if(act&&fc){
       var pts=[]; times.forEach(function(t,i){if(fmap[t])pts.push((pl+i*bw+bw/2).toFixed(1)+","+y(fmap[t].avg).toFixed(1));});
-      g+='<polyline points="'+pts.join(" ")+'" fill="none" stroke="#F2F3F4" stroke-width="1.6" stroke-linejoin="round" opacity=".85"/>';
+      g+='<polyline points="'+pts.join(" ")+'" fill="none" stroke="#F2F3F4" stroke-width="2.4" stroke-linejoin="round"/>';
     }
-    if(fcDate===today){
+    var slot=Math.floor(nowMin()/15);
+    if(date===isoDate()){
       var mins=nowMin(),idx=-1;
       times.forEach(function(t,i){if(toMin(t)<=mins)idx=i;});
-      if(idx>-1&&idx<n-1){var NX=pl+idx*bw+bw/2;g+='<line x1="'+NX+'" x2="'+NX+'" y1="'+pt+'" y2="'+(H-pb)+'" stroke="#F2F3F4" stroke-width="1.5"/><text x="'+(NX+4)+'" y="'+(pt+10)+'" fill="#F2F3F4" font-size="10" font-weight="700">NOW</text>';}
+      if(idx>-1&&idx<n-1){var NX=pl+idx*bw+bw/2;g+='<line class="fc-now" x1="'+NX+'" x2="'+NX+'" y1="'+pt+'" y2="'+(H-pb)+'" stroke="#F2F3F4" stroke-width="2.5"/><text x="'+(NX+6)+'" y="'+(pt+16)+'" fill="#F2F3F4" font-size="13" font-weight="800">NOW</text>';}
     }
-    $("fc-chart").innerHTML='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="Sales per 15 minutes">'+g+'</svg><div id="tip"></div>';
-    var svg=$("fc-chart").querySelector("svg"), tip=$("tip");
-    svg.addEventListener("pointermove",function(e){
-      var rr=e.target.closest("rect[data-i]"); if(!rr||!fcMeta){tip.style.display="none";return;}
-      var i=+rr.getAttribute("data-i"), t=times[i], f=fmap[t], b=fcMeta.bands[bandIdx(vals[i])];
-      tip.innerHTML=act?('<b>'+t12(t)+'</b> · sold '+money(vals[i])+(f?' · forecast '+money(f.avg):'')+'<br>'+esc(b.name)+' level → '+b.crew+' BOH'):('<b>'+t12(t)+'</b> · avg '+money(f.avg)+' · high '+money(f.max)+'<br>'+esc(b.name)+' → '+b.crew+' BOH');
-      var box=$("fc-chart").getBoundingClientRect(); tip.style.display="block";
-      tip.style.left=Math.min(box.width-190,Math.max(0,e.clientX-box.left+10))+"px"; tip.style.top=(e.clientY-box.top-44)+"px";
-    });
-    svg.addEventListener("pointerleave",function(){tip.style.display="none";});
-    $("fc-legend").innerHTML=((fcMeta&&fcMeta.bands)||[]).map(function(b,i){var nx=fcMeta.bands[i+1];return '<span><i style="background:'+BAND_COLORS[i]+'"></i>'+esc(b.name)+' '+(nx?money(b.min)+'–'+money(nx.min):money(b.min)+'+')+' · '+b.crew+' BOH</span>';}).join("")+(act&&fc?'<span><i style="background:#F2F3F4;height:2px;vertical-align:3px;"></i>Forecast</span>':'');
+    var key=date+"|"+board.daypart+"|"+slot+"|"+vals.join(",");
+    return {svg:'<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" aria-label="Sales per 15 minutes">'+g+'</svg>',key:key,times:times,vals:vals,fmap:fmap};
   }
 
   // ---------- render: roster ----------
@@ -947,8 +981,26 @@
       th+='<div class="tv-task"><div class="tn">'+esc(t.name)+(t.sub?'<small>'+esc(t.sub)+'</small>':'')+'</div><div class="to">'+esc(o?o.name:"Unassigned")+'</div><div class="pill '+m[0]+'">'+m[1]+'</div></div>';
     });
     $("tv-tasks").innerHTML=th||'<div class="tv-task"><div class="tn">No tasks posted</div></div>';
+    var showFc=view==="tv-forecast"||(view==="tv-rotate"&&tvPanel==="forecast");
+    var wasFc=document.body.classList.contains("show-forecast");
     document.body.classList.toggle("show-deploy",view==="tv-deploy"||(view==="tv-rotate"&&tvPanel==="deploy"));
     document.body.classList.toggle("show-tasks",view==="tv-tasks"||(view==="tv-rotate"&&tvPanel==="tasks"));
+    document.body.classList.toggle("show-forecast",showFc);
+    if(showFc){ if(!wasFc) $("tv-forecast").removeAttribute("data-key"); paintTvForecast(); }
+  }
+  function paintTvForecast(){
+    var date=isoDate(), act=sales[date], wd=weekdayOf(date), fc=forecast[wd], box=$("tv-forecast");
+    if(!fc&&!act){box.innerHTML='<h2>FORECAST</h2><div class="sub">'+(wd==="Sunday"?"Closed Sundays.":"No forecast loaded.")+'</div>';box.removeAttribute("data-key");return;}
+    var chips="";
+    ["breakfast","lunch","afternoon","dinner"].forEach(function(k){
+      var x=fc&&fc.dayparts[k], a=act&&act.dayparts&&act.dayparts[k];
+      if(!x&&a==null) return;
+      chips+='<div class="chip'+(k===board.daypart?' on':'')+'"><span class="n">'+DP_LABEL[k].toUpperCase()+'</span><span class="v">'+(act?money(a||0):money(x.total))+'</span><span class="s">'+(act?(x?'vs '+money(x.total):''):(t12(x.hotFrom)+'–'+t12(x.hotTo)+' · '+x.peakCrew+' BOH'))+'</span></div>';
+    });
+    var built=buildSalesChart(1400,420,date);
+    if(box.getAttribute("data-key")===built.key&&box.querySelector("svg")) return;
+    box.setAttribute("data-key",built.key);
+    box.innerHTML='<div class="tv-fc-head"><h2>'+(act?"ACTUAL":"FORECAST")+'</h2><div class="sub">'+esc(shortDate(date))+' · TODAY</div></div><div class="tv-chips">'+chips+'</div>'+built.svg;
   }
 
   function renderAll(){
@@ -1965,7 +2017,7 @@
   setInterval(function(){
     if(view==="tv-rotate"){
       var el=Date.now()-rotStart;
-      if(el>=ROT_MS){tvPanel=tvPanel==="deploy"?"tasks":"deploy";rotStart=Date.now();el=0;renderTV();}
+      if(el>=ROT_MS){var order=["deploy","tasks","forecast"], i=order.indexOf(tvPanel); tvPanel=order[(i+1)%order.length]; rotStart=Date.now(); el=0; renderTV();}
       $("rot").style.width=(el/ROT_MS*100)+"%";
     } else $("rot").style.width="0";
   },250);
@@ -1973,7 +2025,7 @@
 
   // ---------- boot ----------
   var hv=(location.hash||"").replace(/^#\/?/,"");
-  var VIEWS=["simple","editor","tv-deploy","tv-tasks","tv-rotate"];
+  var VIEWS=["simple","editor","tv-deploy","tv-tasks","tv-forecast","tv-rotate"];
   setView(VIEWS.indexOf(hv)>-1?hv:(VIEWS.indexOf(ui.view)>-1?ui.view:"simple"));
   loadLocalGrokKey();
 

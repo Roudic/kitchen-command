@@ -660,7 +660,6 @@
     if(board.leaderId===pid) board.leaderId=null;
     var cap=capFor(st);
     if(occupants(st).length>cap) toast(st+" is over its cap ("+cap+")");
-    else if(!trainedOn(p,st)) toast(p.name+" isn't marked trained on "+st);
     saveBoard();
   }
   function unassign(pid){var s=placedAt(pid);if(!s)return;board.assignments[s]=board.assignments[s].filter(function(x){return x!==pid;});saveBoard();}
@@ -696,7 +695,7 @@
     if(!placedNames.length){undoSnap=null;toast("No open spots to fill");return;}
     saveBoard();
     logFeed("Auto-deployed "+placedNames.length+": "+placedNames.join(", "));
-    var msg="Placed "+placedNames.length+" · "+onStationsCount()+"/"+target+" on stations"+(untrained?" · "+untrained+" not trained":"")+(need>0?" · still "+need+" short":"");
+    var msg="Placed "+placedNames.length+" · "+onStationsCount()+"/"+target+" on stations"+(need>0?" · still "+need+" short":"");
     toast(msg,{label:"Undo",fn:doUndo});
   }
   function doUndo(){ if(!undoSnap)return; board.assignments=undoSnap.assignments; board.leaderId=undoSnap.leaderId; undoSnap=null; saveBoard(); logFeed("Undo"); }
@@ -955,7 +954,7 @@
         ids.forEach(function(pid){
           var p=person(pid), slot=document.createElement("div");
           slot.className="st-slot"+(p.status==="break"?" onbreak":"");
-          slot.innerHTML='<span class="name">'+esc(p.name)+(p.status==="break"?" · break":"")+'</span>'+(trainedOn(p,st)?'':'<span class="warn">NOT TRAINED</span>')+'<span class="x" title="Remove" role="button">✕</span>';
+          slot.innerHTML='<span class="name">'+esc(p.name)+(p.status==="break"?" · break":"")+'</span><span class="x" title="Remove" role="button">✕</span>';
           slot.addEventListener("pointerdown",function(e){if(e.target.classList.contains("x"))return;beginPress(e,pid);});
           slot.querySelector(".x").addEventListener("click",function(ev){ev.stopPropagation();unassign(pid);});
           slot.addEventListener("click",function(ev){ev.stopPropagation();if(suppressClick)return;if(selected&&selected!==pid){assign(selected,st);selected=null;return;}selected=(selected===pid)?null:pid;renderAll();});
@@ -1202,14 +1201,14 @@
   }
   function stationPickerFor(p){
     openSheet(function(s){
-      shHead(s,"Where should "+p.name.split(" ")[0]+" go?","Green check = trained on it.");
+      shHead(s,"Where should "+p.name.split(" ")[0]+" go?","");
       var layout=LAYOUT[board.daypart]||LAYOUT.lunch;
       Object.keys(layout).forEach(function(area){
         shSec(s,area.toUpperCase());
         layout[area].forEach(function(st){
           var occ=occupants(st), cap=capFor(st), names=occ.map(function(id){return person(id).name.split(" ")[0];});
           var small=occ.length?("Now: "+names.join(", ")+(occ.length>=cap?(cap===1?" — they'll come off":" — full"):"")):"Open";
-          shBtn(s,{label:st,small:small,tag:trainedOn(p,st)?'<span class="ok-tag">✓ TRAINED</span>':'<span class="no-tag">NOT TRAINED</span>',fn:function(){ placeOn(p.id,st); closeSheet(); }});
+          shBtn(s,{label:st,small:small,fn:function(){ placeOn(p.id,st); closeSheet(); }});
         });
       });
       shCancel(s);
@@ -1231,10 +1230,10 @@
       free.sort(function(a,b){return (trainedOn(b,st)-trainedOn(a,st))||a.name.localeCompare(b.name);});
       shSec(s,"HERE AND FREE");
       if(!free.length){ var d=document.createElement("p");d.className="sd";d.textContent="Everyone who's here is already on a station. Pick someone below to move them.";s.appendChild(d); }
-      free.forEach(function(p){ shBtn(s,{label:p.name,small:skillName(p.skill),tag:trainedOn(p,st)?'<span class="ok-tag">✓ TRAINED</span>':'<span class="no-tag">NOT TRAINED</span>',fn:function(){ placeOn(p.id,st); closeSheet(); toast(p.name+" → "+st,{label:"Undo",fn:doUndo}); }}); });
+      free.forEach(function(p){ shBtn(s,{label:p.name,small:skillName(p.skill),fn:function(){ placeOn(p.id,st); closeSheet(); toast(p.name+" → "+st,{label:"Undo",fn:doUndo}); }}); });
       var others=roster.filter(function(p){var w=placedAt(p.id);return p.status!=="off"&&w&&w!==st;});
       if(others.length){ shSec(s,"MOVE FROM ANOTHER STATION");
-        others.forEach(function(p){ shBtn(s,{label:p.name,small:"Now on "+placedAt(p.id),tag:trainedOn(p,st)?'<span class="ok-tag">✓ TRAINED</span>':'<span class="no-tag">NOT TRAINED</span>',fn:function(){ placeOn(p.id,st); closeSheet(); toast(p.name+" moved to "+st,{label:"Undo",fn:doUndo}); }}); });
+        others.forEach(function(p){ shBtn(s,{label:p.name,small:"Now on "+placedAt(p.id),fn:function(){ placeOn(p.id,st); closeSheet(); toast(p.name+" moved to "+st,{label:"Undo",fn:doUndo}); }}); });
       }
       if(occ.length){ shSec(s,"TAKE SOMEONE OFF");
         occ.forEach(function(id){ var p=person(id); shBtn(s,{icon:"↩",cls:"bad",label:"Take "+p.name+" off",fn:function(){ snap(); unassign(id); closeSheet(); toast(p.name+" taken off",{label:"Undo",fn:doUndo}); }}); });
@@ -1400,7 +1399,7 @@
       layout[area].forEach(function(st){
         var occ=occupants(st), b=document.createElement("button");
         b.className="s-row"+(occ.length?"":" open"); b.style.setProperty("--ac",areaColor(area));
-        var who=occ.length?occ.map(function(id){var p=person(id);return esc(p.name)+(p.status==="break"?'<span class="w">ON BREAK</span>':'')+(trainedOn(p,st)?'':'<span class="w">NOT TRAINED</span>');}).join("<br>"):"OPEN — tap to fill";
+        var who=occ.length?occ.map(function(id){var p=person(id);return esc(p.name)+(p.status==="break"?'<span class="w">ON BREAK</span>':'');}).join("<br>"):"OPEN — tap to fill";
         b.innerHTML='<span class="sn">'+esc(st)+'</span><span class="who">'+who+'</span><span class="chev">›</span>';
         b.addEventListener("click",function(){stationSheet(st);});
         rows.appendChild(b);

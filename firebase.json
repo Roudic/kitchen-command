@@ -1,6 +1,21 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json",
+    "edition": "enterprise",
+    "database": "kitchen",
+    "location": "us-central1"
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true
+    },
+    "authorizedDomains": [
+      "localhost",
+      "roudic.github.io",
+      "boh-kitchen-command.firebaseapp.com",
+      "boh-kitchen-command.web.app"
+    ]
   },
   "hosting": {
     "public": ".",

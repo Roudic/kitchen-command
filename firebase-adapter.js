@@ -6,7 +6,7 @@
 // If firebase-config.js still has the PASTE_ placeholders, the app stops
 // and waits. Board, team, tasks, and sales are never saved on this device.
 
-import { firebaseConfig, STORE_NAME } from "./firebase-config.js";
+import { firebaseConfig, STORE_NAME, FIRESTORE_DATABASE_ID } from "./firebase-config.js";
 
 const V = "10.12.2";
 const configured = !String(firebaseConfig.apiKey || "").startsWith("PASTE");
@@ -160,9 +160,11 @@ async function boot() {
   let fs;
   try {
     // Offline cache: the board keeps working through Wi-Fi drops and syncs when it's back.
-    fs = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) });
+    // Live listeners and the offline cache are required so every screen stays in sync
+    // through Wi-Fi drops. That is why this uses onSnapshot instead of pipelines.
+    fs = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }, FIRESTORE_DATABASE_ID);
   } catch (e) {
-    fs = F.getFirestore(app);
+    fs = F.getFirestore(app, FIRESTORE_DATABASE_ID);
   }
 
   let resolved = false;

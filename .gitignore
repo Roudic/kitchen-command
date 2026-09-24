@@ -3,3 +3,4 @@ seed-data.json
 *.csv
 .DS_Store
 node_modules/
+firestore-rules-analysis.txt

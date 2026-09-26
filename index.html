@@ -645,6 +645,50 @@
     board.leaderId=board.deployments[board.daypart].leaderId||null;
   }
   function dpsHas(dp){ return ["breakfast","lunch","afternoon","dinner"].indexOf(dp)>-1; }
+  function rollBoardDay(){
+    var today=isoDate();
+    if(board.serviceDate===today) return false;
+    ensureDeployments();
+    ["breakfast","lunch","afternoon","dinner"].forEach(function(dp){
+      board.deployments[dp]={assignments:{},leaderId:null};
+    });
+    board.serviceDate=today;
+    var dp=dpsHas(board.daypart)?board.daypart:"lunch";
+    board.daypart=dp;
+    board.assignments=board.deployments[dp].assignments;
+    board.leaderId=null;
+    logFeed("New day — yesterday's setup cleared");
+    return true;
+  }
+  function syncBoardToSchedule(){
+    var today=isoDate(), doc=schedule[today];
+    if(!doc||!doc.shifts) return false;
+    if(db&&!firstLoad.roster) return false;
+    ensureDeployments();
+    var changed=false;
+    ["breakfast","lunch","afternoon","dinner"].forEach(function(dp){
+      var due={};
+      dueToday(dp).forEach(function(p){ due[p.id]=1; });
+      var slot=board.deployments[dp];
+      Object.keys(slot.assignments||{}).forEach(function(st){
+        var prev=slot.assignments[st]||[];
+        var next=prev.filter(function(id){ return due[id]; });
+        if(next.length!==prev.length){ slot.assignments[st]=next; changed=true; }
+      });
+      if(slot.leaderId&&!due[slot.leaderId]){ slot.leaderId=null; changed=true; }
+    });
+    if(changed){
+      var dp=dpsHas(board.daypart)?board.daypart:"lunch";
+      board.assignments=board.deployments[dp].assignments;
+      board.leaderId=board.deployments[dp].leaderId||null;
+    }
+    return changed;
+  }
+  function refreshDayBoard(){
+    var rolled=rollBoardDay(), synced=syncBoardToSchedule();
+    if(rolled||synced) saveBoard();
+    return rolled||synced;
+  }
   function setDaypart(dp){ showDaypart(dp); saveBoard(); }
   function saveBoard(){
     showDaypart(board.daypart);
@@ -1117,13 +1161,15 @@
   }
   function clockOf(p, dp){
     dp=dp||board.daypart;
-    if(p.clock&&p.clock[dp]) return p.clock[dp];
-    if(!p.clock&&dp===clockDaypart()) return p.status||"off";
+    var day=p.clock&&p.clock[isoDate()];
+    if(day&&day[dp]) return day[dp];
     return "off";
   }
   function setClock(p, status){
+    var today=isoDate();
     if(!p.clock) p.clock={};
-    p.clock[board.daypart]=status;
+    if(!p.clock[today]||typeof p.clock[today]!=="object") p.clock[today]={};
+    p.clock[today][board.daypart]=status;
     p.status=status;
     savePerson(p);
   }
@@ -2123,7 +2169,7 @@
       $("rot").style.width=(el/ROT_MS*100)+"%";
     } else $("rot").style.width="0";
   },250);
-  setInterval(function(){ if(drag&&drag.active)return; if(view==="simple") renderSimple(); else if(view==="editor") renderForecast(); else renderTV(); },30000);
+  setInterval(function(){ if(drag&&drag.active)return; if(refreshDayBoard())return; if(view==="simple") renderSimple(); else if(view==="editor") renderForecast(); else renderTV(); },30000);
 
   // ---------- boot ----------
   var hv=(location.hash||"").replace(/^#\/?/,"");
@@ -2132,7 +2178,7 @@
   loadLocalGrokKey();
 
   function goLocal(){
-    loadLocal(); showDaypart(board.daypart); renderAll(); setSync("local","Local only");
+    loadLocal(); if(!refreshDayBoard()){ showDaypart(board.daypart); renderAll(); } setSync("local","Local only");
     $("footer").textContent="Kitchen Command · live sync unavailable in this view — saving on this device only";
   }
   if(!window.claude||!window.claude.use){goLocal();return;}
@@ -2152,12 +2198,14 @@
           stationList().forEach(function(st){var a=(old[st]||[]).join(","),b=(board.assignments[st]||[]).join(",");if(a!==b){var names=(board.assignments[st]||[]).map(function(id){var p=person(id);return p?p.name:"?";});logFeed(st+" → "+(names.length?names.join(", "):"cleared"));}});
         }
       }
-      firstLoad.board=true; renderAll();
+      firstLoad.board=true;
+      if(!refreshDayBoard()) renderAll();
     },onErr);
     db.collection("roster").onSnapshot(function(s){
       roster=s.docs.map(function(d){var o=clone(d.data());o.id=d.id;o.status=o.status||"active";return o;});
       if(firstLoad.roster&&!s.metadata.hasPendingWrites){s.docChanges().forEach(function(c){var o=c.doc.data();if(c.type==="modified")logFeed(o.name+" is now "+o.status);if(c.type==="added")logFeed(o.name+" added to roster");});}
-      firstLoad.roster=true; renderAll();
+      firstLoad.roster=true;
+      if(!refreshDayBoard()) renderAll();
     },onErr);
     db.collection("tasks").onSnapshot(function(s){
       tasks=s.docs.map(function(d){var o=clone(d.data());o.id=d.id;return o;});
@@ -2166,7 +2214,8 @@
     },onErr);
     var yday=new Date(); yday.setDate(yday.getDate()-1);
     db.collection("schedule").where("date",">=",isoDate(yday)).onSnapshot(function(s){
-      schedule={}; s.docs.forEach(function(d){schedule[d.id]=d.data();}); renderAll();
+      schedule={}; s.docs.forEach(function(d){schedule[d.id]=d.data();});
+      if(!refreshDayBoard()) renderAll();
     },onErr);
     db.collection("sales").onSnapshot(function(s){
       sales={}; s.docs.forEach(function(d){sales[d.id]=d.data();}); renderAll();

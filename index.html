@@ -656,7 +656,7 @@
     });
   }
   function resetClocksForToday(){
-    var today=isoDate(), n=0;
+    var today=isoDate(), changed=[];
     roster.forEach(function(p){
       var dirty=false;
       if(!p.clock) p.clock={};
@@ -668,11 +668,13 @@
       }
       var want=clockOf(p);
       if(p.status!==want){ p.status=want; dirty=true; }
-      if(dirty){ n++; savePerson(p); }
+      if(dirty) changed.push(p);
     });
-    return n>0;
+    changed.forEach(function(p){ savePerson(p); });
+    return changed.length>0;
   }
   function kickoffNewDay(dateMoved, windowMoved){
+    if(db&&!firstLoad.board) return false;
     var today=isoDate(), nowDp=clockDaypart();
     var dateChanged=board.serviceDate!==today;
     if(!dateChanged && !windowMoved && !clocksNeedReset()) return false;
@@ -2177,6 +2179,10 @@
   },250);
   setInterval(function(){
     if(drag&&drag.active) return;
+    if(db&&!firstLoad.board){
+      if(view==="simple") renderSimple(); else if(view==="editor") renderForecast(); else renderTV();
+      return;
+    }
     var today=isoDate(), nowDp=clockDaypart();
     var dateMoved=today!==liveDate, windowMoved=nowDp!==liveWindow;
     liveDate=today; liveWindow=nowDp;

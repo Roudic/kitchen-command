@@ -469,6 +469,7 @@
       <div class="card">
         <div class="dep-head">
           <h2 class="dep-title"><span id="dp-title">Lunch</span> deployment<small id="dp-leader"></small></h2>
+          <select class="sel" id="plan-date" aria-label="Plan a day"></select>
           <button class="btn" id="layout-btn">Edit positions</button>
           <button class="btn" id="leader-btn">Set leader</button>
           <button class="btn danger" id="clear-btn">Clear</button>
@@ -555,7 +556,7 @@
   function person(id){for(var i=0;i<roster.length;i++){if(roster[i].id===id)return roster[i];}return null;}
   function initials(n){var p=String(n||"?").trim().split(/\s+/);return (p[0][0]||"")+(p.length>1?p[p.length-1][0]:"");}
   function skillName(k){k=String(k||"").toLowerCase();for(var i=0;i<SKILLS.length;i++){if(SKILLS[i][0]===k)return SKILLS[i][1];}return k.replace(/_/g," ").replace(/\b\w/g,function(c){return c.toUpperCase();});}
-  function stationList(){var l=LAYOUT[board.daypart]||LAYOUT.lunch,o=[];Object.keys(l).forEach(function(a){o=o.concat(l[a]);});return o;}
+  function stationList(){var l=LAYOUT[activeDp()]||LAYOUT.lunch,o=[];Object.keys(l).forEach(function(a){o=o.concat(l[a]);});return o;}
   var layoutCaps={}, layoutSkills={};
   function areaColor(area){ return AREA_COLOR[area] || "var(--a-primary)"; }
   function capFor(st){ return (layoutCaps[st]!=null?layoutCaps[st]:CAPS[st]) || 1; }
@@ -584,8 +585,8 @@
     renderAll();
   }
   loadLayoutLocal();
-  function occupants(st){return (board.assignments[st]||[]).filter(function(id){return person(id);});}
-  function placedAt(pid){var a=board.assignments||{};var sts=stationList();for(var i=0;i<sts.length;i++){if((a[sts[i]]||[]).indexOf(pid)>-1)return sts[i];}return null;}
+  function occupants(st){return (workMap()[st]||[]).filter(function(id){return person(id);});}
+  function placedAt(pid){var a=workMap();var sts=stationList();for(var i=0;i<sts.length;i++){if((a[sts[i]]||[]).indexOf(pid)>-1)return sts[i];}return null;}
   function clone(o){return JSON.parse(JSON.stringify(o));}
   function nowStr(){return new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});}
   function money(v){return "$"+Math.round(v).toLocaleString();}
@@ -603,7 +604,7 @@
     });
     return n;
   }
-  function targetCrew(dayName){var fc=forecast[dayName||fcDay];var x=fc&&fc.dayparts&&fc.dayparts[board.daypart];return x?x.peakCrew:stationList().length;}
+  function targetCrew(dayName){var fc=forecast[dayName||fcDay];var x=fc&&fc.dayparts&&fc.dayparts[activeDp()];return x?x.peakCrew:stationList().length;}
 
   function logFeed(msg){
     feedItems.unshift({t:nowStr(),m:msg}); feedItems=feedItems.slice(0,30);
@@ -644,6 +645,24 @@
     board.assignments=board.deployments[board.daypart].assignments;
     board.leaderId=board.deployments[board.daypart].leaderId||null;
   }
+  var planDate="", planDp="";
+  function planning(){ return view==="editor" && !!(planDate && planDate!==isoDate()); }
+  function activeDp(){ return (view==="editor" && planning()) ? (planDp||board.daypart||"lunch") : board.daypart; }
+  function planSlot(date, dp){
+    if(!board.plans) board.plans={};
+    if(!board.plans[date]) board.plans[date]={};
+    if(!board.plans[date][dp]) board.plans[date][dp]={assignments:{},leaderId:null};
+    if(!board.plans[date][dp].assignments) board.plans[date][dp].assignments={};
+    return board.plans[date][dp];
+  }
+  function workMap(){
+    if(planning() && view==="editor") return planSlot(planDate, activeDp()).assignments;
+    return board.assignments||{};
+  }
+  function editLeader(){
+    if(planning() && view==="editor") return planSlot(planDate, activeDp()).leaderId||null;
+    return board.leaderId;
+  }
   function dpsHas(dp){ return ["breakfast","lunch","afternoon","dinner"].indexOf(dp)>-1; }
   var liveDate=isoDate(), liveWindow=clockDaypart();
   function clocksNeedReset(){
@@ -680,16 +699,26 @@
     if(!dateChanged && !windowMoved && !clocksNeedReset()) return false;
     if(dateChanged){
       ensureDeployments();
+      var dayPlan=board.plans&&board.plans[today];
+      function slotReady(slot){
+        if(!slot) return false;
+        if(slot.leaderId) return true;
+        var a=slot.assignments||{};
+        return Object.keys(a).some(function(k){ return (a[k]||[]).length; });
+      }
+      var planned=false;
       ["breakfast","lunch","afternoon","dinner"].forEach(function(dp){
-        board.deployments[dp]={assignments:{},leaderId:null};
+        var src=dayPlan&&dayPlan[dp];
+        if(slotReady(src)){ planned=true; board.deployments[dp]={assignments:clone(src.assignments||{}),leaderId:src.leaderId||null}; }
+        else board.deployments[dp]={assignments:{},leaderId:null};
       });
-      board.assignments={};
-      board.leaderId=null;
+      if(board.plans) Object.keys(board.plans).forEach(function(d){ if(d<=today) delete board.plans[d]; });
+      if(planDate&&planDate<=today) planDate="";
       board.serviceDate=today;
       board.daypart=nowDp;
       board.assignments=board.deployments[nowDp].assignments;
-      board.leaderId=null;
-      logFeed("New day — yesterday's setup cleared");
+      board.leaderId=board.deployments[nowDp].leaderId||null;
+      logFeed(planned?"New day — planned setup is on the board":"New day — yesterday's setup cleared");
     } else if(windowMoved){
       showDaypart(nowDp);
     }
@@ -713,25 +742,27 @@
 
   // ---------- assignment ops ----------
   function assign(pid, st){
-    var p=person(pid); if(!p||p.status==="off") return;
+    var p=person(pid); if(!p||(!planning()&&p.status==="off")) return;
+    var map=workMap();
     var prev=placedAt(pid);
     if(prev===st) return;
-    if(prev) board.assignments[prev]=board.assignments[prev].filter(function(x){return x!==pid;});
-    board.assignments[st]=occupants(st).concat([pid]);
-    if(board.leaderId===pid) board.leaderId=null;
+    if(prev) map[prev]=map[prev].filter(function(x){return x!==pid;});
+    map[st]=(map[st]||[]).filter(function(id){return person(id);}).concat([pid]);
+    if(planning()){ if(planSlot(planDate, activeDp()).leaderId===pid) planSlot(planDate, activeDp()).leaderId=null; }
+    else if(board.leaderId===pid) board.leaderId=null;
     var cap=capFor(st);
-    if(occupants(st).length>cap) toast(st+" is over its cap ("+cap+")");
+    if((map[st]||[]).filter(function(id){return person(id);}).length>cap) toast(st+" is over its cap ("+cap+")");
     saveBoard();
   }
-  function unassign(pid){var s=placedAt(pid);if(!s)return;board.assignments[s]=board.assignments[s].filter(function(x){return x!==pid;});saveBoard();}
+  function unassign(pid){var s=placedAt(pid);if(!s)return;var map=workMap();map[s]=map[s].filter(function(x){return x!==pid;});saveBoard();}
 
   function autoDeploy(){
     var target=targetCrew(), need=target-onStationsCount();
-    if(need<=0){toast("Already at target ("+target+") for "+DP_LABEL[board.daypart]);return;}
-    var avail=roster.filter(function(p){return p.status==="active"&&!placedAt(p.id)&&p.id!==board.leaderId;});
-    if(!avail.length){toast("Nobody available — everyone active is already placed");return;}
-    undoSnap={assignments:clone(board.assignments),leaderId:board.leaderId};
-    var seq=(board.daypart==="breakfast"?FILL.breakfast:FILL.other).filter(function(s){return stationList().indexOf(s)>-1;});
+    if(need<=0){toast("Already at target ("+target+") for "+DP_LABEL[activeDp()]);return;}
+    var avail=planning()?dueOn(planDate, activeDp()).filter(function(p){return !placedAt(p.id)&&editLeader()!==p.id;}):roster.filter(function(p){return p.status==="active"&&!placedAt(p.id)&&p.id!==board.leaderId;});
+    if(!avail.length){toast(planning()?"Nobody scheduled for that daypart is still open":"Nobody available — everyone active is already placed");return;}
+    undoSnap=planning()?{plan:true,date:planDate,dp:activeDp(),assignments:clone(workMap()),leaderId:editLeader()}:{assignments:clone(board.assignments),leaderId:board.leaderId};
+    var seq=(activeDp()==="breakfast"?FILL.breakfast:FILL.other).filter(function(s){return stationList().indexOf(s)>-1;});
     stationList().forEach(function(s){ if(seq.indexOf(s)<0) seq.push(s); });
     var cur={}; stationList().forEach(function(s){cur[s]=occupants(s).length;});
     var placedNames=[], untrained=0;
@@ -747,7 +778,8 @@
         if(idx<0 && !requireTrained) idx=0;
         if(idx<0) return;
         var p=avail.splice(idx,1)[0];
-        board.assignments[st]=occupants(st).concat([p.id]);
+        var map=workMap();
+        map[st]=(map[st]||[]).concat([p.id]);
         cur[st]++; need--; placedNames.push(p.name.split(" ").slice(-1)[0]+" → "+st);
         if(!trainedOn(p,st)) untrained++;
       });
@@ -759,20 +791,25 @@
     var msg="Placed "+placedNames.length+" · "+onStationsCount()+"/"+target+" on stations"+(need>0?" · still "+need+" short":"");
     toast(msg,{label:"Undo",fn:doUndo});
   }
-  function doUndo(){ if(!undoSnap)return; board.assignments=undoSnap.assignments; board.leaderId=undoSnap.leaderId; undoSnap=null; saveBoard(); logFeed("Undo"); }
+  function doUndo(){
+    if(!undoSnap)return;
+    if(undoSnap.plan){ var s=planSlot(undoSnap.date, undoSnap.dp); s.assignments=undoSnap.assignments; s.leaderId=undoSnap.leaderId; }
+    else { board.assignments=undoSnap.assignments; board.leaderId=undoSnap.leaderId; }
+    undoSnap=null; saveBoard(); logFeed("Undo");
+  }
   var clearArmed=false, clearTimer=null;
   function clearBoard(){
     if(!clearArmed){clearArmed=true;$("clear-btn").textContent="Tap to confirm";clearTimeout(clearTimer);clearTimer=setTimeout(function(){clearArmed=false;$("clear-btn").textContent="Clear";},3000);return;}
     clearArmed=false;$("clear-btn").textContent="Clear";
-    undoSnap={assignments:clone(board.assignments),leaderId:board.leaderId};
-    board.assignments={}; saveBoard(); logFeed("Board cleared");
-    toast("Board cleared",{label:"Undo",fn:doUndo});
+    undoSnap=planning()?{plan:true,date:planDate,dp:activeDp(),assignments:clone(workMap()),leaderId:editLeader()}:{assignments:clone(board.assignments),leaderId:board.leaderId};
+    var map=workMap(); Object.keys(map).forEach(function(k){ delete map[k]; }); saveBoard(); logFeed(planning()?"Plan cleared":"Board cleared");
+    toast(planning()?"Plan cleared":"Board cleared",{label:"Undo",fn:doUndo});
   }
 
   // ---------- drag and drop (pointer-based, works with touch) ----------
   function beginPress(e, pid){
     if(view!=="editor"||(e.button!=null&&e.button>0)) return;
-    var p=person(pid); if(!p||p.status==="off") return;
+    var p=person(pid); if(!p||(!planning()&&p.status==="off")) return;
     drag={pid:pid,x:e.clientX,y:e.clientY,active:false,pointerId:e.pointerId,type:e.pointerType,fromStation:!!placedAt(pid)};
   }
   function stationAt(x,y){var el=document.elementFromPoint(x,y);return el?el.closest(".station[data-st]"):null;}
@@ -937,20 +974,20 @@
   function renderRoster(){
     applyClockToStatus();
     var q=$("roster-search").value.trim().toLowerCase(), list=$("roster-list");
-    var today=isoDate(), dayDoc=schedule[today], todayShifts=(dayDoc&&dayDoc.shifts)||[];
-    var due=dueToday(board.daypart);
+    var day=planning()?planDate:isoDate(), dp=activeDp(), dayDoc=schedule[day], todayShifts=(dayDoc&&dayDoc.shifts)||[];
+    var due=dueOn(day, dp);
     var hereN=due.filter(function(p){return clockOf(p)!=="off";}).length;
-    $("roster-count").textContent="("+due.length+" "+DP_LABEL[board.daypart]+")";
+    $("roster-count").textContent="("+due.length+" "+DP_LABEL[dp]+")";
     $("m-active").textContent=due.filter(function(p){return clockOf(p)==="active";}).length+" in";
     $("m-break").textContent=due.filter(function(p){return clockOf(p)==="break";}).length+" break";
-    $("roster-filter").textContent=shortDate(today)+" · "+DP_LABEL[board.daypart]+" · "+due.length+" scheduled · "+hereN+" on the clock";
-    $("adv-dps").innerHTML=["breakfast","lunch","afternoon","dinner"].map(function(k){return '<button type="button" class="dp-btn'+(k===board.daypart?' on':'')+'" data-dp="'+k+'">'+DP_LABEL[k]+'</button>';}).join("");
-    $("adv-dps").querySelectorAll(".dp-btn").forEach(function(b){b.addEventListener("click",function(){setDaypart(b.getAttribute("data-dp"));});});
+    $("roster-filter").textContent=planning()?("Planning "+shortDate(day)+" · "+DP_LABEL[dp]+" · "+due.length+" scheduled"):(shortDate(day)+" · "+DP_LABEL[dp]+" · "+due.length+" scheduled · "+hereN+" on the clock");
+    $("adv-dps").innerHTML=["breakfast","lunch","afternoon","dinner"].map(function(k){return '<button type="button" class="dp-btn'+(k===dp?' on':'')+'" data-dp="'+k+'">'+DP_LABEL[k]+'</button>';}).join("");
+    $("adv-dps").querySelectorAll(".dp-btn").forEach(function(b){b.addEventListener("click",function(){ if(planning()){ planDp=b.getAttribute("data-dp"); renderAll(); } else setDaypart(b.getAttribute("data-dp")); });});
     var vis=due.filter(function(p){return !q||p.name.toLowerCase().indexOf(q)>-1||skillName(p.skill).toLowerCase().indexOf(q)>-1;});
-    var groups=[["ON THE CLOCK",function(p){return clockOf(p)!=="off";}],["NOT IN YET",function(p){return clockOf(p)==="off";}]];
+    var groups=planning()?[["SCHEDULED",function(){return true;}]]:[["ON THE CLOCK",function(p){return clockOf(p)!=="off";}],["NOT IN YET",function(p){return clockOf(p)==="off";}]];
     list.innerHTML="";
-    if(!todayShifts.length){list.innerHTML='<div class="hint">No schedule for '+esc(shortDate(today))+'. Upload the PDF, or call someone in.</div>';return;}
-    if(!due.length){list.innerHTML='<div class="hint">Nobody on the schedule for '+esc(DP_LABEL[board.daypart])+' on '+esc(shortDate(today))+'.</div>';return;}
+    if(!todayShifts.length){list.innerHTML='<div class="hint">No schedule for '+esc(shortDate(day))+'. Upload the PDF, or call someone in.</div>';return;}
+    if(!due.length){list.innerHTML='<div class="hint">Nobody on the schedule for '+esc(DP_LABEL[dp])+' on '+esc(shortDate(day))+'.</div>';return;}
     groups.forEach(function(g){
       var ppl=vis.filter(g[1]).sort(function(a,b){return a.name.localeCompare(b.name);});
       if(!ppl.length) return;
@@ -960,20 +997,23 @@
   }
   function personEl(p){
     var el=document.createElement("div"), where=placedAt(p.id);
-    el.className="person"+(p.id===selected?" selected":"")+(where?" placed":"")+(p.status==="off"?" is-off":"");
-    var stc=p.status==="active"?"st-active":(p.status==="break"?"st-break":"st-off");
-    var sh=shiftsToday(p.id).filter(function(x){return shiftHitsDaypart(x, board.daypart);});
-    el.innerHTML='<div class="avatar">'+esc(initials(p.name))+'</div><div class="p-meta"><div class="p-name">'+esc(p.name)+'</div><div class="p-skill">'+esc(skillName(p.skill))+(where?' · on '+esc(where):(sh.length?' · '+esc(shiftLabel(sh[0]))+(sh[0].calledIn?' · called in':''):''))+'</div></div><button class="st-btn '+stc+'" aria-label="Change status">'+esc(p.status.toUpperCase())+'</button>';
+    el.className="person"+(p.id===selected?" selected":"")+(where?" placed":"")+(!planning()&&p.status==="off"?" is-off":"");
+    var stc=planning()?"st-active":(p.status==="active"?"st-active":(p.status==="break"?"st-break":"st-off"));
+    var day=planning()?planDate:isoDate();
+    var sh=((schedule[day]&&schedule[day].shifts)||[]).filter(function(x){return x.personId===p.id&&shiftHitsDaypart(x, activeDp());});
+    el.innerHTML='<div class="avatar">'+esc(initials(p.name))+'</div><div class="p-meta"><div class="p-name">'+esc(p.name)+'</div><div class="p-skill">'+esc(skillName(p.skill))+(where?' · on '+esc(where):(sh.length?' · '+esc(shiftLabel(sh[0]))+(sh[0].calledIn?' · called in':''):''))+'</div></div><button class="st-btn '+stc+'" aria-label="Change status">'+esc(planning()?"PLAN":p.status.toUpperCase())+'</button>';
     el.querySelector(".st-btn").addEventListener("pointerdown",function(ev){ev.stopPropagation();});
     el.querySelector(".st-btn").addEventListener("click",function(ev){
       ev.stopPropagation();
+      if(planning()) return;
       var next=clockOf(p)==="active"?"break":(clockOf(p)==="break"?"off":"active");
-      if(next==="off"){var s=placedAt(p.id);if(s){board.assignments[s]=board.assignments[s].filter(function(x){return x!==p.id;});saveBoard();}}
+      if(next==="off"){var s=placedAt(p.id);if(s){var map=workMap();map[s]=(map[s]||[]).filter(function(x){return x!==p.id;});saveBoard();}}
       setClock(p, next);
     });
     el.addEventListener("pointerdown",function(e){beginPress(e,p.id);});
     el.addEventListener("click",function(){
       if(suppressClick) return;
+      if(planning()){ selected=(selected===p.id)?null:p.id; renderAll(); return; }
       if(clockOf(p)==="off"){ setClock(p,"active"); logFeed(p.name+" clocked in for "+DP_LABEL[board.daypart]); toast(p.name+" is on the clock"); return; }
       selected=(selected===p.id)?null:p.id; renderAll();
     });
@@ -998,7 +1038,11 @@
 
   // ---------- render: stations ----------
   function renderStations(){
-    var wrap=$("station-board"), layout=LAYOUT[board.daypart]||LAYOUT.lunch;
+    var wrap=$("station-board"), dp=activeDp(), layout=LAYOUT[dp]||LAYOUT.lunch;
+    var sel=$("plan-date"), days=[];
+    for(var di=0;di<15;di++){ var dd=new Date(); dd.setDate(dd.getDate()+di); days.push(isoDate(dd)); }
+    sel.innerHTML=days.map(function(iso,i){ var v=i?iso:""; return '<option value="'+v+'"'+((!planDate&&!i)||planDate===iso?' selected':'')+'>'+(i?"Plan "+shortDate(iso):"Today")+'</option>'; }).join("");
+    sel.onchange=function(){ planDate=this.value; if(planDate && !planDp) planDp=board.daypart; renderAll(); };
     wrap.innerHTML="";
     Object.keys(layout).forEach(function(area){
       var a=document.createElement("div"); a.className="area"; a.style.setProperty("--ac",areaColor(area));
@@ -1026,14 +1070,14 @@
       });
       a.appendChild(grid); wrap.appendChild(a);
     });
-    var on=onStationsCount(), target=targetCrew(), open=stationList().filter(function(s){return !occupants(s).length;}).length;
+    var on=onStationsCount(), target=targetCrew(planning()?weekdayOf(planDate):undefined), open=stationList().filter(function(s){return !occupants(s).length;}).length;
     $("meter-num").textContent=on+" / "+target+" on stations";
     var f=$("meter-fill"); f.style.width=Math.min(100,target?on/target*100:0)+"%"; f.className="fill"+(on>=target?" ok":"");
     $("meter-open").textContent=open?open+" open":"All covered";
     $("meter-open").style.background=open?"":"#0d2a1c"; $("meter-open").style.color=open?"":"var(--green)";
-    $("dp-title").textContent=DP_LABEL[board.daypart];
-    var l=board.leaderId&&person(board.leaderId);
-    $("dp-leader").textContent=l?"· Leader: "+l.name:"· No leader set";
+    $("dp-title").textContent=planning()?("Plan "+shortDate(planDate)+" "+DP_LABEL[dp]):DP_LABEL[board.daypart];
+    var l=editLeader()&&person(editLeader());
+    $("dp-leader").textContent=l?"· Leader: "+l.name:(planning()?"· Saved for that day. Today stays as it is.":"· No leader set");
     $("leader-btn").disabled=!selected; $("leader-btn").style.opacity=selected?1:.5;
   }
 
@@ -1161,12 +1205,13 @@
     return shiftDayparts(sh).indexOf(dp)>-1;
   }
   function shiftsToday(pid){var s=schedule[isoDate()];if(!s||!s.shifts)return [];return s.shifts.filter(function(x){return x.personId===pid;});}
-  function dueToday(dp){
-    var shifts=(schedule[isoDate()]&&schedule[isoDate()].shifts)||[];
+  function dueOn(date, dp){
+    var shifts=(schedule[date]&&schedule[date].shifts)||[];
     var ids={};
     shifts.forEach(function(sh){ if(sh.personId&&shiftHitsDaypart(sh, dp)) ids[sh.personId]=sh; });
     return roster.filter(function(p){ return ids[p.id]; });
   }
+  function dueToday(dp){ return dueOn(isoDate(), dp); }
   function clockOf(p, dp){
     dp=dp||board.daypart;
     var day=p.clock&&p.clock[isoDate()];
@@ -1243,7 +1288,7 @@
   function shBtn(s,opts){ var b=document.createElement("button"); b.className="sh-btn "+(opts.cls||""); b.innerHTML=(opts.icon?'<span class="ic">'+opts.icon+'</span>':'')+'<span style="flex:1;min-width:0;">'+esc(opts.label)+(opts.small?'<small>'+esc(opts.small)+'</small>':'')+'</span>'+(opts.tag||""); b.addEventListener("click",opts.fn); s.appendChild(b); return b; }
   function shSec(s,txt){ var d=document.createElement("div"); d.className="sh-sec"; d.textContent=txt; s.appendChild(d); }
   function shCancel(s,label){ var b=document.createElement("button"); b.className="sh-cancel"; b.textContent=label||"Cancel"; b.addEventListener("click",closeSheet); s.appendChild(b); }
-  function snap(){ undoSnap={assignments:clone(board.assignments),leaderId:board.leaderId}; }
+  function snap(){ undoSnap=planning()?{plan:true,date:planDate,dp:activeDp(),assignments:clone(workMap()),leaderId:editLeader()}:{assignments:clone(board.assignments),leaderId:board.leaderId}; }
 
   function statusWord(p){ return p.status==="active"?"Here":(p.status==="break"?"On break":"Not here"); }
 
@@ -1280,7 +1325,7 @@
   function placeOn(pid,st){
     snap();
     var cap=capFor(st), occ=occupants(st).filter(function(x){return x!==pid;});
-    if(occ.length>=cap && cap===1){ board.assignments[st]=[]; }
+    if(occ.length>=cap && cap===1){ workMap()[st]=[]; }
     assign(pid,st);
     logFeed(person(pid).name+" → "+st);
     renderAll();
@@ -2028,13 +2073,32 @@
     if(!/area$/i.test(n)) n=n+" Area";
     return n.replace(/\s+/g," ");
   }
+  function eachSlot(dp, fn){
+    ensureDeployments();
+    if(board.deployments[dp]) fn(board.deployments[dp]);
+    if(!board.plans) return;
+    Object.keys(board.plans).forEach(function(date){
+      var slot=board.plans[date]&&board.plans[date][dp];
+      if(slot) fn(slot);
+    });
+  }
+  function retargetStation(dp, from, to){
+    eachSlot(dp, function(slot){
+      var a=slot.assignments||{};
+      if(!a[from]) return;
+      a[to]=a[from]; delete a[from];
+    });
+  }
+  function dropStation(dp, st){
+    eachSlot(dp, function(slot){ if(slot.assignments) delete slot.assignments[st]; });
+  }
   function findArea(dp, station){
     var lay=LAYOUT[dp]||{}; var found=null;
     Object.keys(lay).forEach(function(a){ if(lay[a].indexOf(station)>-1) found=a; });
     return found;
   }
   function openLayout(){
-    var dp=board.daypart||"lunch";
+    var dp=activeDp()||"lunch";
     function draw(){
       openSheet(function(s){
         shHead(s,"Edit "+DP_LABEL[dp]+" positions","Add a name, pick an area, or type a new one. This daypart stays its own layout.");
@@ -2055,15 +2119,15 @@
               if(layoutCaps[st]!=null){ layoutCaps[next]=layoutCaps[st]; delete layoutCaps[st]; }
               if(layoutSkills[st]){ layoutSkills[next]=layoutSkills[st]; delete layoutSkills[st]; }
               if(!layoutSkills[next]) layoutSkills[next]=skillFor(next);
-              if(board.assignments[st]){ board.assignments[next]=board.assignments[st]; delete board.assignments[st]; saveBoard(); }
-              saveLayout(); logFeed(st+" renamed to "+next); draw();
+              retargetStation(dp, st, next);
+              saveBoard(); saveLayout(); logFeed(st+" renamed to "+next); draw();
             });
             var rm=document.createElement("button"); rm.className="btn danger"; rm.textContent="Remove";
             rm.addEventListener("click",function(){
               var areaKey=findArea(dp,st); if(!areaKey) return;
               LAYOUT[dp][areaKey]=LAYOUT[dp][areaKey].filter(function(x){return x!==st;});
               if(!LAYOUT[dp][areaKey].length) delete LAYOUT[dp][areaKey];
-              delete board.assignments[st]; saveBoard(); saveLayout(); logFeed(st+" removed from "+DP_LABEL[dp]); draw();
+              dropStation(dp, st); saveBoard(); saveLayout(); logFeed(st+" removed from "+DP_LABEL[dp]); draw();
             });
             row.appendChild(name); row.appendChild(ren); row.appendChild(rm); s.appendChild(row);
           });
@@ -2129,7 +2193,7 @@
     savePerson(p); logFeed(n+" added to roster");
   });
   $("ap-name").addEventListener("keydown",function(e){if(e.key==="Enter")$("ap-save").click();});
-  $("leader-btn").addEventListener("click",function(){ if(!selected) return; var s=placedAt(selected); if(s) board.assignments[s]=board.assignments[s].filter(function(x){return x!==selected;}); board.leaderId=selected; logFeed(person(selected).name+" set as leader"); selected=null; saveBoard(); });
+  $("leader-btn").addEventListener("click",function(){ if(!selected) return; var s=placedAt(selected); if(s) workMap()[s]=workMap()[s].filter(function(x){return x!==selected;}); if(planning()) planSlot(planDate, activeDp()).leaderId=selected; else board.leaderId=selected; logFeed(person(selected).name+" set as leader"); selected=null; saveBoard(); });
   $("auto-btn").addEventListener("click",autoDeploy);
   $("clear-btn").addEventListener("click",clearBoard);
   $("add-task").addEventListener("click",function(){
@@ -2214,7 +2278,9 @@
         board=clone(inc); board.assignments=board.assignments||{};
         showDaypart(board.daypart);
         if(firstLoad.board&&!s.metadata.hasPendingWrites){
-          stationList().forEach(function(st){var a=(old[st]||[]).join(","),b=(board.assignments[st]||[]).join(",");if(a!==b){var names=(board.assignments[st]||[]).map(function(id){var p=person(id);return p?p.name:"?";});logFeed(st+" → "+(names.length?names.join(", "):"cleared"));}});
+          var liveSts=[], liveLay=LAYOUT[board.daypart]||LAYOUT.lunch;
+          Object.keys(liveLay).forEach(function(a){ liveSts=liveSts.concat(liveLay[a]); });
+          liveSts.forEach(function(st){var a=(old[st]||[]).join(","),b=(board.assignments[st]||[]).join(",");if(a!==b){var names=(board.assignments[st]||[]).map(function(id){var p=person(id);return p?p.name:"?";});logFeed(st+" → "+(names.length?names.join(", "):"cleared"));}});
         }
       }
       firstLoad.board=true;

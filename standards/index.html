@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script>
+  // Same bootstrap as Kitchen Command: the page asks claude.use("db"); ../firebase-adapter.js
+  // answers with a Firestore-backed db after sign-in (same logins, same rules).
+  window.__kc = {};
+  window.__kc.dbReady = new Promise(function (r) { window.__kc.resolveDb = r; });
+  window.claude = { use: function (name) { return name === "db" ? window.__kc.dbReady : Promise.resolve(null); } };
+</script>
+<script type="module" src="../firebase-adapter.js"></script>
+<title>Hueytown Standards Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: compact header strip (title, progress, 4 counts) → two columns: zone menu grouped by part of the store | one zone's task table */
+:root{
+  --bg:#f3f1ee; --panel:#ffffff; --sunk:#ece8e4; --line:#e2dcd6; --fg:#1b1816; --muted:#6b635d;
+  --accent:#c8102e; --accent-ink:#ffffff; --accent-soft:#fbe6e9;
+  --hi:#c8102e; --med:#b7791f; --low:#3f7d4e;
+  --done:#2f855a; --prog:#2b6cb0; --block:#9b2c2c;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"Atkinson Hyperlegible",system-ui,-apple-system,Segoe UI,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141211; --panel:#1e1a19; --sunk:#191615; --line:#342f2c; --fg:#f1ece8; --muted:#a69c95;
+  --accent:#f04a60; --accent-ink:#1a0508; --accent-soft:#3a1c22;
+  --hi:#f06b7c; --med:#e2a94c; --low:#74ba86; --done:#74ba86; --prog:#6aa7e6; --block:#e07b7b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141211; --panel:#1e1a19; --sunk:#191615; --line:#342f2c; --fg:#f1ece8; --muted:#a69c95;
+  --accent:#f04a60; --accent-ink:#1a0508; --accent-soft:#3a1c22;
+  --hi:#f06b7c; --med:#e2a94c; --low:#74ba86; --done:#74ba86; --prog:#6aa7e6; --block:#e07b7b; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 var(--body)}
+[hidden]{display:none!important}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:16px;padding-block:20px 60px}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* header strip */
+.top{display:grid;grid-template-columns:1fr auto;gap:16px 24px;align-items:end;padding-bottom:18px;border-bottom:2px solid var(--fg)}
+.eyebrow{font:500 .72rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font:800 clamp(1.9rem,5vw,2.8rem)/.95 var(--display);text-transform:uppercase;margin:4px 0 0}
+h1 span{color:var(--accent)}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:.88rem;border:0;border-radius:999px;padding:.55rem 1rem;cursor:pointer;background:var(--accent);color:var(--accent-ink);text-decoration:none;white-space:nowrap}
+.btn.line{background:var(--panel);color:var(--fg);border:1px solid var(--line)}
+.btn svg{width:15px;height:15px}
+.progress{grid-column:1/-1;display:grid;grid-template-columns:1fr repeat(4,auto);gap:10px 28px;align-items:center}
+.pbar{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pbar .row{display:flex;justify-content:space-between;gap:12px;font-size:.85rem}
+.pbar .row b{font:800 1.5rem/1 var(--display)}
+.track{height:10px;background:var(--sunk);border-radius:99px;overflow:hidden}
+.track i{display:block;height:100%;background:var(--done);border-radius:99px;transition:width .6s}
+.count{background:none;border:0;padding:0;text-align:left;cursor:pointer}
+.count b{display:block;font:700 1.9rem/1 var(--display);font-variant-numeric:tabular-nums}
+.count span{font:500 .66rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.count.alert b{color:var(--hi)}
+.count.on span{color:var(--accent)}
+
+/* two columns */
+.layout{display:grid;grid-template-columns:250px 1fr;gap:24px;margin-top:20px;align-items:start}
+nav.zones{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px);display:flex;flex-direction:column;gap:14px}
+.zgroup h3{font:700 .8rem var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 4px 10px}
+.zone{display:grid;grid-template-columns:1fr auto;align-items:center;gap:2px 8px;width:100%;background:none;border:0;border-radius:10px;padding:8px 10px;text-align:left;cursor:pointer}
+.zone:hover{background:var(--sunk)}
+.zone.on{background:var(--panel);box-shadow:0 0 0 1px var(--line),0 1px 3px rgb(0 0 0 / .06)}
+.zone .n{font-weight:700;font-size:.9rem;line-height:1.2;min-width:0}
+.zone .c{font:500 .72rem var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.zone .c.hot{color:var(--hi)}
+.zone .c.ok{color:var(--done)}
+.zone .mini{grid-column:1/-1;height:3px;background:var(--sunk);border-radius:99px;overflow:hidden}
+.zone .mini i{display:block;height:100%;background:var(--done)}
+.zone.all .n{font-family:var(--display);font-size:1.05rem;letter-spacing:.04em;text-transform:uppercase}
+
+/* task panel */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;min-width:0;overflow:hidden}
+.phead{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
+.phead h2{font:800 1.6rem/1 var(--display);text-transform:uppercase;margin:0}
+.phead p{margin:3px 0 0;font-size:.82rem;color:var(--muted)}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:inline-flex;background:var(--sunk);border-radius:999px;padding:3px}
+.seg button{border:0;background:none;border-radius:999px;padding:.35rem .8rem;font-size:.8rem;font-weight:700;color:var(--muted);cursor:pointer}
+.seg button.on{background:var(--panel);color:var(--fg);box-shadow:0 1px 2px rgb(0 0 0 / .1)}
+#q{font:inherit;font-size:.85rem;padding:.45rem .8rem;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--fg);width:180px;max-width:100%}
+.cols,.task{display:grid;grid-template-columns:36px minmax(0,1fr) 84px 120px 76px 108px;gap:12px;align-items:center;padding-inline:18px}
+.cols{padding-block:8px;font:500 .66rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--sunk);border-bottom:1px solid var(--line)}
+.sub{padding:10px 18px 6px;font:700 .82rem var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line);background:var(--bg)}
+.task{padding-block:11px;border-bottom:1px solid var(--line)}
+.task:last-child{border-bottom:0}
+.task:hover{background:color-mix(in srgb,var(--sunk) 45%,transparent)}
+.task.done .t{text-decoration:line-through;color:var(--muted)}
+.task.done .pri,.task.done .own,.task.done .due{opacity:.5}
+.check{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);background:transparent;cursor:pointer;display:grid;place-items:center;color:#fff;transition:background .2s,border-color .2s}
+.check:hover{border-color:var(--done)}
+.task.done .check{background:var(--done);border-color:var(--done)}
+.check svg{width:13px;height:13px;opacity:0}
+.task.done .check svg{opacity:1}
+.t{min-width:0;overflow-wrap:anywhere;cursor:pointer;background:none;border:0;padding:0;text-align:left;font-weight:700;line-height:1.3}
+.t small{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.t .zn{display:none}
+.pri{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;font-weight:700}
+.pri::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.pri.High{color:var(--hi)} .pri.Medium{color:var(--med)} .pri.Low{color:var(--low)}
+.own{font-size:.85rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.own.none{color:var(--muted);font-style:italic}
+.due{font:500 .78rem var(--mono);color:var(--muted)}
+.due.late{color:var(--hi);font-weight:700}
+.chip{justify-self:start;font-weight:700;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;border-radius:99px;padding:.3rem .65rem;border:1px solid currentColor;background:transparent;cursor:pointer;white-space:nowrap}
+.chip.s-Not{color:var(--muted)} .chip.s-In{color:var(--prog)} .chip.s-Blocked{color:var(--block)} .chip.s-Done{color:var(--done)}
+.edit{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 0 4px 48px}
+.edit label{display:flex;flex-direction:column;gap:4px;font:500 .66rem var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);min-width:0}
+.edit input,.edit select,.edit textarea{font:inherit;font-family:var(--body);font-size:.9rem;padding:.5rem .6rem;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);min-width:0;text-transform:none;letter-spacing:0}
+.edit .wide{grid-column:1/-1}
+.edit .row{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end}
+.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+.empty{padding:48px 18px;text-align:center;color:var(--muted)}
+.ro{font-size:.8rem;color:var(--muted);padding:8px 18px;background:var(--accent-soft)}
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--panel);color:var(--fg);width:min(520px,calc(100vw - 32px));padding:20px}
+dialog::backdrop{background:rgb(0 0 0 / .5)}
+dialog h3{font:800 1.6rem var(--display);text-transform:uppercase;margin:0 0 12px}
+dialog .edit{padding:0}
+
+/* phone: zone menu becomes a scrolling strip; rows stack */
+@media (max-width:820px){
+  .top{grid-template-columns:1fr}
+  #q{flex:1 1 100%;width:auto}
+  .progress{grid-template-columns:repeat(4,1fr)}
+  .pbar{grid-column:1/-1}
+  .layout{grid-template-columns:1fr;gap:14px}
+  nav.zones{position:static;flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:4px;scrollbar-width:none}
+  .zgroup{display:contents}
+  .zgroup h3{display:none}
+  .zone{flex:0 0 auto;width:auto;grid-template-columns:auto auto;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 12px}
+  .zone.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+  .zone .mini{display:none}
+  .zone .n{white-space:nowrap}
+  .cols{display:none}
+  .task{grid-template-columns:32px minmax(0,1fr) auto;row-gap:6px;padding-inline:14px}
+  .task .pri,.task .own,.task .due{grid-column:2;grid-row:auto}
+  .task .meta{display:flex}
+  .chip{grid-column:3;grid-row:1}
+  .edit{padding-left:0;grid-template-columns:1fr 1fr}
+  .phead{padding:14px}
+}
+.meta{display:contents}
+@media (max-width:820px){
+  .meta{grid-column:2/-1;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Store 06123 · Standards walk · <span id="asOf"></span></div>
+      <h1>Hueytown <span>Standards</span> Board</h1>
+    </div>
+    <div class="acts">
+      <button class="btn" id="addBtn" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10"/></svg>Add task</button>
+      <a class="btn line" href="../">Kitchen Command</a>
+      <a class="btn line" href="https://docs.google.com/spreadsheets/d/1CwVFYD1gkqvcecagWDGR4NxuW9XEYz1fC8n1zz9bUO0/edit" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="1.5" width="11" height="13" rx="1.5"/><path d="M2.5 6h11M2.5 10h11M7 6v8.5"/></svg>Google Sheet</a>
+    </div>
+    <div class="progress">
+      <div class="pbar"><div class="row"><span><b id="pctBig">0%</b> complete</span><span id="pct" class="eyebrow"></span></div><div class="track"><i id="pfill" style="width:0"></i></div></div>
+      <button class="count" data-q="open"><b id="kOpen">–</b><span>Open</span></button>
+      <button class="count alert" data-q="high"><b id="kHigh">–</b><span>High priority</span></button>
+      <button class="count" data-q="late"><b id="kLate">–</b><span>Past due</span></button>
+      <button class="count" data-q="unassigned"><b id="kUn">–</b><span>No owner</span></button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="zones" id="zones" aria-label="Zones"></nav>
+    <section class="panel">
+      <div class="phead">
+        <div><h2 id="zTitle">All zones</h2><p id="zSub"></p></div>
+        <div class="tools">
+          <div class="seg" id="seg">
+            <button data-s="open" class="on">To do</button><button data-s="done">Done</button><button data-s="all">All</button>
+          </div>
+          <input id="q" type="search" placeholder="Search task or owner" aria-label="Search">
+        </div>
+      </div>
+      <p class="ro" id="ro" hidden>You can view but not change tasks. Ask Josh to add your login.</p>
+      <div class="cols"><span></span><span>Task</span><span>Priority</span><span>Owner</span><span>Due</span><span>Status</span></div>
+      <div id="list"><div class="empty">Loading the task list…</div></div>
+    </section>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <form id="addForm" method="dialog">
+    <h3>New task</h3>
+    <div class="edit">
+      <label class="wide">Task<input id="nTask" required></label>
+      <label class="wide">Zone<select id="nArea"></select></label>
+      <label>Priority<select id="nPri"><option>High</option><option selected>Medium</option><option>Low</option></select></label>
+      <label>Owner<input id="nOwner"></label>
+      <label class="wide">Due<input id="nDue" type="date"></label>
+      <div class="row"><button type="button" class="btn ghost" id="nCancel">Cancel</button><button class="btn" type="submit">Add task</button></div>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const GROUPS=[
+  ["Back of house",["Kitchen & dish area","BOH Ice machine","Mop area & outside"]],
+  ["Front of house",["Front counter & drink stations","Drive-thru","Dining room & lobby","Restrooms"]],
+  ["Team & office",["Locker room","Office","Manager Station"]],
+  ["Outside & facilities",["Outside","Help tickets & repairs","Misc"]]
+];
+const AREAS=GROUPS.flatMap(g=>g[1]);
+const STATUSES=["Not started","In progress","Blocked","Done"];
+const PRI={High:0,Medium:1,Low:2};
+let tasks=[],db=null,canWrite=true,openId=null,zone="",show="open",quick="";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const today=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const isLate=t=>t.due&&t.status!=="Done"&&t.due<today();
+const isDone=t=>t.status==="Done";
+$("asOf").textContent=new Date().toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});
+AREAS.forEach(a=>$("nArea").add(new Option(a,a)));
+
+function visible(){
+  const q=$("q").value.trim().toLowerCase();
+  return tasks.filter(t=>{
+    if(zone&&t.area!==zone)return false;
+    if(show==="open"&&isDone(t))return false;
+    if(show==="done"&&!isDone(t))return false;
+    if(quick==="high"&&(t.priority!=="High"||isDone(t)))return false;
+    if(quick==="late"&&!isLate(t))return false;
+    if(quick==="unassigned"&&(t.owner||isDone(t)))return false;
+    if(q&&!(t.task+" "+(t.owner||"")+" "+(t.notes||"")).toLowerCase().includes(q))return false;
+    return true;
+  }).sort((a,b)=>isDone(a)-isDone(b)||PRI[a.priority]-PRI[b.priority]||a.task.localeCompare(b.task));
+}
+
+function render(){
+  const done=tasks.filter(isDone).length, n=tasks.length, pct=n?Math.round(done/n*100):0;
+  $("pctBig").textContent=pct+"%";
+  $("pct").textContent=`${done} of ${n} done`;
+  $("pfill").style.width=pct+"%";
+  $("kOpen").textContent=n-done;
+  $("kHigh").textContent=tasks.filter(t=>t.priority==="High"&&!isDone(t)).length;
+  $("kLate").textContent=tasks.filter(isLate).length;
+  $("kUn").textContent=tasks.filter(t=>!t.owner&&!isDone(t)).length;
+  document.querySelectorAll(".count").forEach(b=>b.classList.toggle("on",b.dataset.q===quick));
+  document.querySelectorAll("#seg button").forEach(b=>b.classList.toggle("on",b.dataset.s===show));
+
+  const zoneBtn=(a,label,all)=>{
+    const list=a?tasks.filter(t=>t.area===a):tasks; if(a&&!list.length)return"";
+    const d=list.filter(isDone).length, open=list.length-d, hot=list.some(t=>!isDone(t)&&t.priority==="High");
+    const cls=open===0?"ok":hot?"hot":"";
+    return `<button class="zone${all?" all":""}${zone===a?" on":""}" data-zone="${esc(a)}"><span class="n">${esc(label)}</span><span class="c ${cls}">${open===0?"✓ clear":open+" left"}</span><span class="mini"><i style="width:${list.length?Math.round(d/list.length*100):0}%"></i></span></button>`;
+  };
+  $("zones").innerHTML=zoneBtn("","All zones",true)+GROUPS.map(([g,as])=>{
+    const html=as.map(a=>zoneBtn(a,a)).join(""); return html?`<div class="zgroup"><h3>${esc(g)}</h3>${html}</div>`:"";
+  }).join("");
+
+  const zl=zone?tasks.filter(t=>t.area===zone):tasks;
+  $("zTitle").textContent=zone||"All zones";
+  const quickLbl={high:"high priority",late:"past due",unassigned:"with no owner"}[quick];
+  $("zSub").textContent=`${zl.filter(t=>!isDone(t)).length} open · ${zl.filter(isDone).length} done`+(quickLbl?` · showing ${quickLbl} only`:"");
+
+  const rows=visible();
+  if(!tasks.length){$("list").innerHTML=`<div class="empty">No tasks yet.<br><br><label class="btn" for="csvIn" style="display:inline-flex">Import CSV</label><input id="csvIn" type="file" accept=".csv,text/csv" hidden><br><br><small>In the Google Sheet, choose File › Download › CSV, then pick that file here. Or use “Add task”.</small><div id="impMsg"></div></div>`;return}
+  if(!rows.length){$("list").innerHTML=`<div class="empty">${show==="done"?"Nothing finished here yet.":"All clear here. Nice work."}</div>`;return}
+  if(zone){$("list").innerHTML=rows.map(taskHTML).join("");return}
+  $("list").innerHTML=AREAS.map(a=>{const r=rows.filter(t=>t.area===a);return r.length?`<div class="sub">${esc(a)}</div>`+r.map(taskHTML).join(""):""}).join("");
+}
+
+const tick=`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M3 8.5l3.2 3L13 4.5"/></svg>`;
+function fmtDue(d){return d?new Date(d+"T12:00").toLocaleDateString(undefined,{month:"short",day:"numeric"}):"—"}
+function taskHTML(t){
+  const sCls="s-"+t.status.split(" ")[0];
+  const ed=openId===t.id&&canWrite?`<div class="edit">
+    <label>Owner<input data-f="owner" id="o-${t.id}" value="${esc(t.owner)}" placeholder="Name"></label>
+    <label>Status<select data-f="status" id="s-${t.id}">${STATUSES.map(s=>`<option${s===t.status?" selected":""}>${s}</option>`).join("")}</select></label>
+    <label>Priority<select data-f="priority" id="p-${t.id}">${Object.keys(PRI).map(s=>`<option${s===t.priority?" selected":""}>${s}</option>`).join("")}</select></label>
+    <label>Due<input type="date" data-f="due" id="d-${t.id}" value="${esc(t.due)}"></label>
+    <label class="wide">Notes / follow-up<textarea data-f="notes" id="n-${t.id}" rows="2">${esc(t.notes)}</textarea></label>
+    <div class="row"><button class="btn ghost" data-del="${t.id}">Delete</button><button class="btn" data-close>Save &amp; close</button></div></div>`:"";
+  return `<div class="task${isDone(t)?" done":""}" data-id="${t.id}">
+    <button class="check" data-toggle="${t.id}" aria-label="${isDone(t)?"Mark not done":"Mark done"}" ${canWrite?"":"disabled"}>${tick}</button>
+    <button class="t" data-open="${t.id}">${esc(t.task)}${t.notes?`<small>${esc(t.notes)}</small>`:""}</button>
+    <span class="meta"><span class="pri ${esc(t.priority)}">${esc(t.priority)}</span><span class="own${t.owner?"":" none"}">${t.owner?esc(t.owner):"No owner"}</span><span class="due${isLate(t)?" late":""}">${fmtDue(t.due)}</span></span>
+    <button class="chip ${sCls}" data-cycle="${t.id}" ${canWrite?"":"disabled"} title="Tap to change status">${esc(t.status)}</button>${ed}</div>`;
+}
+
+async function save(id,patch){
+  const t=tasks.find(x=>x.id===id); if(!t)return;
+  Object.assign(t,patch); render();
+  if(!db)return;
+  try{await db.doc("standards/"+id).update({...patch,updatedAt:new Date().toISOString()})}
+  catch(e){if(e&&e.code==="invalid_argument"){canWrite=false;$("ro").hidden=false;render()}}
+}
+
+document.addEventListener("click",e=>{
+  const el=e.target.closest("[data-toggle],[data-cycle],[data-open],[data-close],[data-del],[data-zone],[data-q],[data-s]");
+  if(!el)return;
+  const d=el.dataset;
+  if(d.toggle){const t=tasks.find(x=>x.id===d.toggle);save(t.id,{status:isDone(t)?"Not started":"Done"})}
+  else if(d.cycle){const t=tasks.find(x=>x.id===d.cycle);save(t.id,{status:STATUSES[(STATUSES.indexOf(t.status)+1)%4]})}
+  else if(d.open){if(!canWrite)return;openId=openId===d.open?null:d.open;render();$("o-"+openId)?.focus()}
+  else if("close" in d){openId=null;render()}
+  else if(d.del){if(d.sure){tasks=tasks.filter(x=>x.id!==d.del);openId=null;render();db&&db.doc("standards/"+d.del).delete().catch(()=>{})}else{d.sure="1";el.textContent="Tap again to delete"}}
+  else if(d.zone!==undefined){zone=d.zone;openId=null;render();if(matchMedia("(max-width:820px)").matches)document.querySelector(".panel").scrollIntoView({behavior:"smooth",block:"start"})}
+  else if(d.q){quick=(d.q==="open"||quick===d.q)?"":d.q;show="open";zone="";render()}
+  else if(d.s){show=d.s;render()}
+});
+document.addEventListener("change",e=>{const f=e.target.dataset.f;if(!f)return;save(e.target.closest(".task").dataset.id,{[f]:e.target.value.trim()})});
+$("q").addEventListener("input",render);
+
+$("addBtn").onclick=()=>{$("addForm").reset();if(zone)$("nArea").value=zone;$("dlg").showModal();$("nTask").focus()};
+$("nCancel").onclick=()=>$("dlg").close();
+$("addForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const body={area:$("nArea").value,task:$("nTask").value.trim(),priority:$("nPri").value,owner:$("nOwner").value.trim(),status:"Not started",due:$("nDue").value,notes:"",createdAt:new Date().toISOString()};
+  if(!body.task)return;
+  $("dlg").close();
+  if(db){try{await db.collection("standards").add(body)}catch(err){$("list").insertAdjacentHTML("afterbegin",`<div class="empty">Couldn't add that task. ${err&&err.code==="quota_exceeded"?"The board is full, so delete finished tasks first.":"Try again in a moment."}</div>`)}}
+  else{tasks.push({id:"local"+Date.now(),...body});render()}
+});
+
+// ---- CSV import (columns: Area, Task, Priority, Owner / Completed by, Status, Due date, Notes / follow-up)
+function parseCSV(t){const out=[];let row=[],f="",q=false;for(let i=0;i<t.length;i++){const c=t[i];
+  if(q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++}else q=false}else f+=c}
+  else if(c==='"')q=true;else if(c===','){row.push(f);f=""}else if(c==='\n'||c==='\r'){if(c==='\r'&&t[i+1]==='\n')i++;row.push(f);out.push(row);row=[];f=""}else f+=c}
+  if(f||row.length){row.push(f);out.push(row)}return out.filter(r=>r.some(x=>x.trim()))}
+document.addEventListener("change",async e=>{
+  if(e.target.id!=="csvIn"||!e.target.files[0])return;
+  const rows=parseCSV(await e.target.files[0].text());const head=rows.shift().map(h=>h.trim().toLowerCase());
+  const col=k=>head.findIndex(h=>h.startsWith(k));
+  const ix={area:col("area"),task:col("task"),priority:col("priority"),owner:col("owner"),status:col("status"),due:col("due"),notes:col("notes")};
+  if(ix.task<0){($("impMsg")||{}).textContent="That file has no Task column.";return}
+  const pick=(r,k)=>ix[k]<0?"":(r[ix[k]]||"").trim();
+  const items=rows.map(r=>({area:AREAS.includes(pick(r,"area"))?pick(r,"area"):"Misc",task:pick(r,"task"),priority:PRI[pick(r,"priority")]!==undefined?pick(r,"priority"):"Medium",owner:pick(r,"owner"),status:STATUSES.includes(pick(r,"status"))?pick(r,"status"):"Not started",due:/^\d{4}-\d{2}-\d{2}$/.test(pick(r,"due"))?pick(r,"due"):"",notes:pick(r,"notes"),createdAt:new Date().toISOString()})).filter(x=>x.task);
+  ($("impMsg")||{}).textContent=`Importing ${items.length} tasks…`;
+  let n=0;for(const it of items){try{await db.collection("standards").add(it);n++}catch(err){($("impMsg")||{}).textContent=`Stopped after ${n}: ${err.message||err.code}`;return}}
+});
+
+(async()=>{
+  db=await claude.use("db");
+  if(!db){$("list").innerHTML=`<div class="empty">Sign in to load the task list.</div>`;return}
+  const user=await claude.use("user");
+  const w=user?await user.can("data.write"):null;
+  if(w===false){canWrite=false;$("ro").hidden=false}
+  $("addBtn").hidden=!canWrite;
+  db.collection("standards").onSnapshot(s=>{tasks=s.docs.map(d=>({id:d.id,...d.data()}));render()},
+    ()=>{$("list").innerHTML=`<div class="empty">Lost the connection to the task list. Reload the page to reconnect.</div>`});
+})();
+</script>
+
+</body>
+</html>

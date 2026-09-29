@@ -3,6 +3,13 @@
 Live BOH deployment board: Simple mode for shift leaders, Advanced mode, TV displays, sales-CSV forecast, auto-deploy.
 Hosted free on **GitHub Pages**, live data + sign-in on **Firebase** (free tier).
 
+## Standards Board
+
+`standards/` is the Hueytown Standards Board, a to-do list for the store standards walk, organized by zone. It lives at
+`https://roudic.github.io/kitchen-command/standards/` and uses the same Firebase project, the same logins and the same `firestore.rules` as Kitchen Command. Its tasks are stored in the `standards` collection, so they never mix with Kitchen Command's `tasks`.
+
+**First load:** sign in → the board is empty → **Import CSV**. Get the CSV from the Google Sheet (File › Download › CSV). The task list is not stored in this public repo.
+
 ## What's in here
 
 | File | What it is |
@@ -11,6 +18,7 @@ Hosted free on **GitHub Pages**, live data + sign-in on **Firebase** (free tier)
 | `firebase-adapter.js` | Connects the app to Firebase + the sign-in screen |
 | `firebase-config.js` | **You paste your Firebase keys here** |
 | `firestore.rules` | Who can read/write — **you put your emails here** |
+| `standards/index.html` | The Standards Board (to-do list by zone) |
 | `seed.html` | One-time page that loads your existing data |
 | `seed-data.json` | Your sales, forecast, team from claude.ai — **never commit this** (already in `.gitignore`) |
 

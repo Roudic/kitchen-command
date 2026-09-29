@@ -187,7 +187,10 @@
   .tv-breaks{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:#2a2306;border:1px solid #6b5a12;border-radius:14px;padding:12px 18px;}
   .tv-breaks .lbl{font-size:16px;font-weight:900;letter-spacing:.7px;color:var(--amber);flex:none;}
   .tv-breaks .nm{font-size:26px;font-weight:850;line-height:1.15;}
+  .tv-breaks .tm{font-size:26px;font-weight:900;font-variant-numeric:tabular-nums;margin-left:8px;}
+  .tv-breaks .tm.up{color:#ff4d6a;}
   .tv-breaks .none{font-size:20px;font-weight:750;color:var(--text-dim);}
+  .ck{color:var(--green);font-weight:900;}
   #rot{position:absolute;left:0;bottom:0;height:3px;background:var(--red);width:0;}
   body.tv #tv-board{display:grid;}
   #tv-board{display:none;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;}
@@ -1008,7 +1011,7 @@
     var stc=planning()?"st-active":(p.status==="active"?"st-active":(p.status==="break"?"st-break":"st-off"));
     var day=planning()?planDate:isoDate();
     var sh=((schedule[day]&&schedule[day].shifts)||[]).filter(function(x){return x.personId===p.id&&shiftHitsDaypart(x, activeDp());});
-    el.innerHTML='<div class="avatar">'+esc(initials(p.name))+'</div><div class="p-meta"><div class="p-name">'+esc(p.name)+'</div><div class="p-skill">'+esc(skillName(p.skill))+(where?' · on '+esc(where):(sh.length?' · '+esc(shiftLabel(sh[0]))+(sh[0].calledIn?' · called in':''):''))+'</div></div><button class="st-btn '+stc+'" aria-label="Change status">'+esc(planning()?"PLAN":p.status.toUpperCase())+'</button>';
+    el.innerHTML='<div class="avatar">'+esc(initials(p.name))+'</div><div class="p-meta"><div class="p-name">'+esc(p.name)+breakCheck(p)+'</div><div class="p-skill">'+esc(skillName(p.skill))+(where?' · on '+esc(where):(sh.length?' · '+esc(shiftLabel(sh[0]))+(sh[0].calledIn?' · called in':''):''))+'</div></div><button class="st-btn '+stc+'" aria-label="Change status">'+esc(planning()?"PLAN":p.status.toUpperCase())+'</button>';
     el.querySelector(".st-btn").addEventListener("pointerdown",function(ev){ev.stopPropagation();});
     el.querySelector(".st-btn").addEventListener("click",function(ev){
       ev.stopPropagation();
@@ -1064,7 +1067,7 @@
         ids.forEach(function(pid){
           var p=person(pid), slot=document.createElement("div");
           slot.className="st-slot"+(p.status==="break"?" onbreak":"");
-          slot.innerHTML='<span class="name">'+esc(p.name)+(p.status==="break"?" · break":"")+'</span><span class="x" title="Remove" role="button">✕</span>';
+          slot.innerHTML='<span class="name">'+esc(p.name)+breakCheck(p)+(p.status==="break"?" · break":"")+'</span><span class="x" title="Remove" role="button">✕</span>';
           slot.addEventListener("pointerdown",function(e){if(e.target.classList.contains("x"))return;beginPress(e,pid);});
           slot.querySelector(".x").addEventListener("click",function(ev){ev.stopPropagation();unassign(pid);});
           slot.addEventListener("click",function(ev){ev.stopPropagation();if(suppressClick)return;if(selected&&selected!==pid){assign(selected,st);selected=null;return;}selected=(selected===pid)?null:pid;renderAll();});
@@ -1114,8 +1117,7 @@
   function renderTV(){
     applyClockToStatus();
     var d=new Date();
-    var breaks=roster.filter(function(p){ return clockOf(p)==="break"; }).sort(function(a,b){ return a.name.localeCompare(b.name); });
-    $("tv-breaks").innerHTML='<div class="tv-breaks"><span class="lbl">ON BREAK</span>'+(breaks.length?breaks.map(function(p){ var w=placedAt(p.id); return '<span class="nm">'+esc(p.name)+(w?" · "+esc(w):"")+'</span>'; }).join(""):'<span class="none">Nobody</span>')+'</div>';
+    paintBreakBar();
     $("tv-dp").textContent=DP_LABEL[board.daypart].toUpperCase();
     $("tv-clock").textContent=d.toLocaleDateString([], {weekday:"long"})+" · "+d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
     var r=rushStatus(), rt=rushText(r), box=$("tv-rush");
@@ -1130,7 +1132,7 @@
       layout[area].forEach(function(st){
         var ids=occupants(st);
         if(!ids.length){ html+='<div class="tv-st open"><div class="sn">'+esc(st.toUpperCase())+'</div><div class="pn">OPEN</div></div>'; return; }
-        html+='<div class="tv-st"><div class="sn">'+esc(st.toUpperCase())+'</div>'+ids.map(function(id){var p=person(id);return '<div class="pn'+(p.status==="break"?" brk":"")+'">'+esc(p.name)+(p.status==="break"?" · BREAK":"")+'</div>';}).join("")+'</div>';
+        html+='<div class="tv-st"><div class="sn">'+esc(st.toUpperCase())+'</div>'+ids.map(function(id){var p=person(id);return '<div class="pn'+(p.status==="break"?" brk":"")+'">'+esc(p.name)+breakCheck(p)+(p.status==="break"?" · BREAK":"")+'</div>';}).join("")+'</div>';
       });
       html+='</div>';
     });
@@ -1227,12 +1229,41 @@
     return "off";
   }
   function setClock(p, status){
-    var today=isoDate();
+    var today=isoDate(), dp=board.daypart;
     if(!p.clock) p.clock={};
-    if(!p.clock[today]||typeof p.clock[today]!=="object") p.clock[today]={};
-    p.clock[today][board.daypart]=status;
+    if(!p.clock[today]||typeof p.clock[today]!=="object"||Array.isArray(p.clock[today])) p.clock[today]={};
+    var day=p.clock[today];
+    if(status==="break"){
+      if(!day.breakAt||typeof day.breakAt!=="object") day.breakAt={};
+      day.breakAt[dp]=Date.now();
+      if(!day.had||typeof day.had!=="object") day.had={};
+      day.had[dp]=true;
+    }
+    day[dp]=status;
     p.status=status;
     savePerson(p);
+  }
+  function breakCheck(p){
+    if(planning()) return "";
+    var day=p.clock&&p.clock[isoDate()];
+    if(day&&day.had&&day.had[board.daypart]) return ' <span class="ck">✓</span>';
+    return "";
+  }
+  function breakRemain(p){
+    var day=p.clock&&p.clock[isoDate()];
+    var start=day&&day.breakAt&&day.breakAt[board.daypart];
+    if(!start) return 20*60;
+    var left=20*60-Math.floor((Date.now()-Number(start))/1000);
+    return left>0?left:0;
+  }
+  function breakClock(sec){ return Math.floor(sec/60)+":"+("0"+(sec%60)).slice(-2); }
+  function paintBreakBar(){
+    var el=$("tv-breaks"); if(!el) return;
+    var breaks=roster.filter(function(p){ return clockOf(p)==="break"; }).sort(function(a,b){ return a.name.localeCompare(b.name); });
+    el.innerHTML='<div class="tv-breaks"><span class="lbl">ON BREAK</span>'+(breaks.length?breaks.map(function(p){
+      var w=placedAt(p.id), left=breakRemain(p);
+      return '<span class="nm">'+esc(p.name)+(w?" · "+esc(w):"")+' <span class="tm'+(left?"\"":" up\"")+'>'+breakClock(left)+'</span></span>';
+    }).join(""):'<span class="none">Nobody</span>')+'</div>';
   }
   function applyClockToStatus(){
     roster.forEach(function(p){ p.status=clockOf(p); });
@@ -1508,7 +1539,7 @@
           var sub=board.leaderId===p.id?"Shift leader":(where?"On "+where:(sh.length?shiftLabel(sh[0]):"—"));
           if(sh[0]&&sh[0].calledIn) sub="Called in"+(where?" · on "+where:"");
           var badge=clockOf(p)==="active"?"✓ ON THE CLOCK":(clockOf(p)==="break"?"☕ ON BREAK":"NOT IN · TAP TO CLOCK IN");
-          t.innerHTML='<span class="tn">'+esc(p.name)+'</span><span class="tt">'+esc(sub)+'</span><span class="tb">'+badge+'</span>';
+          t.innerHTML='<span class="tn">'+esc(p.name)+breakCheck(p)+'</span><span class="tt">'+esc(sub)+'</span><span class="tb">'+badge+'</span>';
           t.addEventListener("click",function(){
             if(clockOf(p)==="off"){ setClock(p,"active"); logFeed(p.name+" clocked in for "+DP_LABEL[board.daypart]); toast(p.name+" is on the clock",{label:"Undo",fn:function(){setClock(p,"off");}}); }
             else personSheet(p);
@@ -1535,7 +1566,7 @@
       layout[area].forEach(function(st){
         var occ=occupants(st), b=document.createElement("button");
         b.className="s-row"+(occ.length?"":" open"); b.style.setProperty("--ac",areaColor(area));
-        var who=occ.length?occ.map(function(id){var p=person(id);return esc(p.name)+(p.status==="break"?'<span class="w">ON BREAK</span>':'');}).join("<br>"):"OPEN — tap to fill";
+        var who=occ.length?occ.map(function(id){var p=person(id);return esc(p.name)+breakCheck(p)+(p.status==="break"?'<span class="w">ON BREAK</span>':'');}).join("<br>"):"OPEN — tap to fill";
         b.innerHTML='<span class="sn">'+esc(st)+'</span><span class="who">'+who+'</span><span class="chev">›</span>';
         b.addEventListener("click",function(){stationSheet(st);});
         rows.appendChild(b);
@@ -2281,6 +2312,11 @@
     if(kickoffNewDay(dateMoved, windowMoved)) return;
     if(view==="simple") renderSimple(); else if(view==="editor") renderForecast(); else renderTV();
   },30000);
+  setInterval(function(){
+    if(view.indexOf("tv-")!==0) return;
+    if(!roster.some(function(p){ return clockOf(p)==="break"; })) return;
+    paintBreakBar();
+  },1000);
 
   // ---------- boot ----------
   var hv=(location.hash||"").replace(/^#\/?/,"");

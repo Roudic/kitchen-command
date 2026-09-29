@@ -292,6 +292,7 @@
   .t-row.done .tx b{color:var(--text-dim);text-decoration:line-through;}
   .t-btn{appearance:none;flex:none;border:2px solid var(--line);background:var(--panel);color:var(--text);border-radius:12px;font-size:16px;font-weight:800;min-height:54px;min-width:120px;cursor:pointer;}
   .t-btn.done{background:#0f2419;border-color:#1d6b43;color:var(--green);}
+  .t-btn.bad{color:#ff6b83;border-color:#6b1a28;}
   .s-foot{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
   @media (max-width:700px){.s-foot{grid-template-columns:1fr;}}
   .help-list{margin:10px 0 0;padding-left:22px;font-size:16px;line-height:1.6;color:var(--text-dim);}
@@ -1631,10 +1632,18 @@
       row.innerHTML='<div class="tx"><b>'+esc(t.name)+'</b><span>'+esc(o?o.name:"No one assigned")+(t.sub?" · "+esc(t.sub):"")+'</span></div>';
       var pick=document.createElement("button"); pick.className="t-btn"; pick.textContent="Assign";
       pick.addEventListener("click",function(){ assignPersonSheet(t); });
+      var del=document.createElement("button"); del.className="t-btn bad"; del.textContent="Delete";
+      del.addEventListener("click",function(){
+        openSheet(function(s){
+          shHead(s,"Delete "+t.name+"?","It comes off this shift.");
+          shBtn(s,{icon:"🗑",cls:"bad",label:"Yes, delete it",fn:function(){ deleteTask(t.id); logFeed(t.name+" removed"); closeSheet(); toast(t.name+" deleted"); }});
+          shCancel(s,"Keep it");
+        });
+      });
       var btn=document.createElement("button"); btn.className="t-btn"+(t.status==="done"?" done":"");
       btn.textContent=t.status==="done"?"✓ Done":"Mark done";
       btn.addEventListener("click",function(){ t.status=t.status==="done"?"not":"done"; if(t.status==="done")t.doneAt=new Date().toISOString(); saveTask(t); if(t.status==="done") logFeed(t.name+" signed off"); });
-      row.appendChild(pick); row.appendChild(btn); tb.appendChild(row);
+      row.appendChild(pick); row.appendChild(del); row.appendChild(btn); tb.appendChild(row);
     });
   }
 

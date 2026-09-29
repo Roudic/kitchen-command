@@ -8,7 +8,9 @@ Hosted free on **GitHub Pages**, live data + sign-in on **Firebase** (free tier)
 `standards/` is the Hueytown Standards Board, a to-do list for the store standards walk, organized by zone. It lives at
 `https://roudic.github.io/kitchen-command/standards/` and uses the same Firebase project, the same logins and the same `firestore.rules` as Kitchen Command. Its tasks are stored in the `standards` collection, so they never mix with Kitchen Command's `tasks`.
 
-**First load:** sign in → the board is empty → **Import CSV**. Get the CSV from the Google Sheet (File › Download › CSV). The task list is not stored in this public repo.
+**Google Sheet sync (two-way):** open the Sheet → Extensions › Apps Script → paste `standards/sheet-sync.gs` → change `KEY` → Deploy › New deployment › Web app (Execute as: Me, Who has access: Anyone) → copy the URL. On the board tap **Connect Sheet**, paste the URL and key, Save. The first sync loads every Sheet row onto the board. After that, board changes write to the Sheet right away, and Sheet edits or new rows reach the board every 2 minutes (or **Sync now**). Delete tasks on the board, not in the Sheet. The URL and key are saved in Firestore (`config/standardsSync`), not in this repo.
+
+**No Sheet?** Use **Import CSV** on the empty board instead.
 
 ## What's in here
 

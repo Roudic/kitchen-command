@@ -1099,7 +1099,7 @@
       var row=document.createElement("div"); row.className="task-row"+(t.status==="done"?" done":"");
       row.innerHTML='<div class="task-name">'+esc(t.name)+(t.sub?'<span class="sub">'+esc(t.sub)+'</span>':'')+'</div>';
       var own=document.createElement("select");
-      var people=onClock(t.daypart||board.daypart);
+      var people=onClock(t.daypart||board.daypart, t.date);
       if(t.ownerId&&person(t.ownerId)&&!people.some(function(p){return p.id===t.ownerId;})) people=people.concat([person(t.ownerId)]);
       own.innerHTML='<option value="">Unassigned</option>'+people.map(function(p){return '<option value="'+esc(p.id)+'"'+(t.ownerId===p.id?" selected":"")+'>'+esc(p.name)+'</option>';}).join("");
       own.addEventListener("change",function(){t.ownerId=this.value||null;if(!t.daypart)t.daypart=board.daypart;saveTask(t);});
@@ -1115,10 +1115,22 @@
     });
   }
   function sortedTasks(){return tasks.slice().sort(function(a,b){return (a.order||0)-(b.order||0);});}
-  function tasksNow(){ return sortedTasks().filter(function(t){ return !t.daypart || t.daypart===board.daypart; }); }
-  function onClock(dp){
+  function taskScope(){
+    if(view==="editor" && planning()) return {date:planDate, dp:activeDp()};
+    return {date:isoDate(), dp:board.daypart};
+  }
+  function tasksNow(){
+    var w=taskScope();
+    return sortedTasks().filter(function(t){ return t.date===w.date && t.daypart===w.dp; });
+  }
+  function onClock(dp, date){
     dp=dp||board.daypart;
+    if((date||isoDate())!==isoDate()) return [];
     return dueToday(dp).filter(function(p){ return clockOf(p, dp)!=="off"; }).sort(function(a,b){ return a.name.localeCompare(b.name); });
+  }
+  function pinTaskDays(){
+    var today=isoDate();
+    tasks.forEach(function(t){ if(t.daypart && !t.date){ t.date=today; saveTask(t); } });
   }
 
   // ---------- render: TV ----------
@@ -1393,8 +1405,8 @@
     var dp=t.daypart||board.daypart;
     openSheet(function(s){
       shHead(s,"Who gets "+t.name+"?","Only people clocked in for "+DP_LABEL[dp]+".");
-      var list=onClock(dp);
-      if(!list.length){ var empty=document.createElement("p"); empty.className="sd"; empty.textContent="Nobody is clocked in for "+DP_LABEL[dp]+"."; s.appendChild(empty); }
+      var list=onClock(dp, t.date);
+      if(!list.length){ var empty=document.createElement("p"); empty.className="sd"; empty.textContent=(t.date&&t.date!==isoDate())?"Names can be assigned when that day starts.":"Nobody is clocked in for "+DP_LABEL[dp]+"."; s.appendChild(empty); }
       list.forEach(function(p){
         shBtn(s,{label:p.name,small:t.ownerId===p.id?"Assigned now":"",fn:function(){ t.ownerId=p.id; if(!t.daypart) t.daypart=dp; saveTask(t); logFeed(t.name+" → "+p.name); closeSheet(); toast(p.name+" → "+t.name); }});
       });
@@ -1612,7 +1624,7 @@
     // tasks
     var tb=$("s-tasks"); tb.innerHTML="";
     var list=tasksNow();
-    if(!list.length) tb.innerHTML='<p class="s-help" style="margin:0;">No tasks for '+esc(DP_LABEL[board.daypart])+'.</p>';
+    if(!list.length) tb.innerHTML='<p class="s-help" style="margin:0;">No tasks for '+esc(shortDate(isoDate()))+' '+esc(DP_LABEL[board.daypart])+'.</p>';
     list.forEach(function(t){
       var o=t.ownerId&&person(t.ownerId), row=document.createElement("div");
       row.className="t-row"+(t.status==="done"?" done":"");
@@ -2296,7 +2308,8 @@
   $("clear-btn").addEventListener("click",clearBoard);
   $("add-task").addEventListener("click",function(){
     var n=$("new-task").value.trim(); if(!n) return;
-    var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now(),daypart:board.daypart};
+    var w=taskScope();
+    var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now(),daypart:w.dp,date:w.date};
     tasks.push(t); $("new-task").value=""; saveTask(t);
   });
   $("new-task").addEventListener("keydown",function(e){if(e.key==="Enter")$("add-task").click();});
@@ -2304,7 +2317,8 @@
   $("adv-callin").addEventListener("click",openCallIn);
   $("s-add-task").addEventListener("click",function(){
     var n=$("s-new-task").value.trim(); if(!n) return;
-    var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now(),daypart:board.daypart};
+    var w=taskScope();
+    var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now(),daypart:w.dp,date:w.date};
     tasks.push(t); $("s-new-task").value=""; saveTask(t);
   });
   $("s-new-task").addEventListener("keydown",function(e){if(e.key==="Enter")$("s-add-task").click();});
@@ -2364,7 +2378,7 @@
   loadLocalGrokKey();
 
   function goLocal(){
-    loadLocal(); if(!kickoffNewDay(false,false)){ showDaypart(board.daypart); renderAll(); } setSync("local","Local only");
+    loadLocal(); pinTaskDays(); if(!kickoffNewDay(false,false)){ showDaypart(board.daypart); renderAll(); } setSync("local","Local only");
     $("footer").textContent="Kitchen Command · live sync unavailable in this view — saving on this device only";
   }
   if(!window.claude||!window.claude.use){goLocal();return;}
@@ -2397,6 +2411,7 @@
     },onErr);
     db.collection("tasks").onSnapshot(function(s){
       tasks=s.docs.map(function(d){var o=clone(d.data());o.id=d.id;return o;});
+      pinTaskDays();
       if(firstLoad.tasks&&!s.metadata.hasPendingWrites){s.docChanges().forEach(function(c){var o=c.doc.data();if(c.type==="modified"&&o.status==="done")logFeed(o.name+" signed off");else if(c.type==="added")logFeed("New task: "+o.name);});}
       firstLoad.tasks=true; renderAll();
     },onErr);

@@ -182,6 +182,12 @@
   .tv-count .big{font-size:50px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1;}
   .tv-count .big.short{color:var(--amber);} .tv-count .big.ok{color:var(--green);}
   .tv-count .small{font-size:14px;color:var(--text-dim);font-weight:700;margin-top:6px;}
+  #tv-breaks{display:none;}
+  body.tv #tv-breaks{display:block;padding:0 28px 4px;background:var(--panel);}
+  .tv-breaks{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:#2a2306;border:1px solid #6b5a12;border-radius:14px;padding:12px 18px;}
+  .tv-breaks .lbl{font-size:16px;font-weight:900;letter-spacing:.7px;color:var(--amber);flex:none;}
+  .tv-breaks .nm{font-size:26px;font-weight:850;line-height:1.15;}
+  .tv-breaks .none{font-size:20px;font-weight:750;color:var(--text-dim);}
   #rot{position:absolute;left:0;bottom:0;height:3px;background:var(--red);width:0;}
   body.tv #tv-board{display:grid;}
   #tv-board{display:none;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;}
@@ -357,6 +363,7 @@
   <div class="tv-count"><div class="big" id="tv-count">0/0</div><div class="small">ON STATIONS / TARGET</div></div>
   <div id="rot"></div>
 </div>
+<div id="tv-breaks"></div>
 
 <div id="app">
   <div id="simple"><div class="s-wrap">
@@ -1006,9 +1013,7 @@
     el.querySelector(".st-btn").addEventListener("click",function(ev){
       ev.stopPropagation();
       if(planning()) return;
-      var next=clockOf(p)==="active"?"break":(clockOf(p)==="break"?"off":"active");
-      if(next==="off"){var s=placedAt(p.id);if(s){var map=workMap();map[s]=(map[s]||[]).filter(function(x){return x!==p.id;});saveBoard();}}
-      setClock(p, next);
+      openClockSheet(p);
     });
     el.addEventListener("pointerdown",function(e){beginPress(e,p.id);});
     el.addEventListener("click",function(){
@@ -1107,7 +1112,10 @@
 
   // ---------- render: TV ----------
   function renderTV(){
+    applyClockToStatus();
     var d=new Date();
+    var breaks=roster.filter(function(p){ return clockOf(p)==="break"; }).sort(function(a,b){ return a.name.localeCompare(b.name); });
+    $("tv-breaks").innerHTML='<div class="tv-breaks"><span class="lbl">ON BREAK</span>'+(breaks.length?breaks.map(function(p){ var w=placedAt(p.id); return '<span class="nm">'+esc(p.name)+(w?" · "+esc(w):"")+'</span>'; }).join(""):'<span class="none">Nobody</span>')+'</div>';
     $("tv-dp").textContent=DP_LABEL[board.daypart].toUpperCase();
     $("tv-clock").textContent=d.toLocaleDateString([], {weekday:"long"})+" · "+d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
     var r=rushStatus(), rt=rushText(r), box=$("tv-rush");
@@ -1291,18 +1299,38 @@
   function snap(){ undoSnap=planning()?{plan:true,date:planDate,dp:activeDp(),assignments:clone(workMap()),leaderId:editLeader()}:{assignments:clone(board.assignments),leaderId:board.leaderId}; }
 
   function statusWord(p){ return p.status==="active"?"Here":(p.status==="break"?"On break":"Not here"); }
+  function sendHome(p){
+    var where=placedAt(p.id), wasLeader=board.leaderId===p.id;
+    snap();
+    if(where){ var map=workMap(); map[where]=(map[where]||[]).filter(function(x){ return x!==p.id; }); }
+    if(wasLeader) board.leaderId=null;
+    if(where||wasLeader) saveBoard();
+    setClock(p,"off");
+    logFeed(p.name+" sent home");
+    toast(p.name+" sent home",{label:"Undo",fn:function(){ setClock(p,"active"); doUndo(); }});
+  }
+  function openClockSheet(p){
+    openSheet(function(s){
+      var where=placedAt(p.id), st=clockOf(p);
+      shHead(s,p.name,st==="break"?"On break":(st==="active"?"On the clock":"Not in"));
+      if(st!=="active") shBtn(s,{icon:"✓",cls:"go",label:st==="break"?"Back from break":"Clock in",fn:function(){ setClock(p,"active"); logFeed(p.name+(st==="break"?" back from break":" clocked in")); closeSheet(); toast(p.name+" is here"); }});
+      if(st==="active") shBtn(s,{icon:"☕",cls:"warn",label:"Send on break",small:where?"Stays on "+where+", shows as on break":"",fn:function(){ setClock(p,"break"); logFeed(p.name+" on break"); closeSheet(); toast(p.name+" is on break"); }});
+      if(st!=="off") shBtn(s,{icon:"🏠",cls:"warn",label:"Send home",fn:function(){ sendHome(p); closeSheet(); }});
+      shCancel(s);
+    });
+  }
 
   function personSheet(p){
     openSheet(function(s){
       var where=placedAt(p.id), sh=shiftsToday(p.id);
       var desc=statusWord(p)+(where?" · on "+where:"")+(sh.length?" · scheduled "+sh.map(shiftLabel).join(", "):"")+(board.leaderId===p.id?" · shift leader":"");
       shHead(s,p.name,desc);
-      if(p.status!=="active") shBtn(s,{icon:"✓",cls:"go",label:p.status==="break"?"Back from break":"Clocked in — here now",fn:function(){ var wasB=p.status==="break"; p.status="active"; savePerson(p); logFeed(p.name+(wasB?" back from break":" clocked in")); closeSheet(); toast(p.name+" is here"); }});
-      if(p.status==="active") shBtn(s,{icon:"☕",cls:"warn",label:"Send on break",small:where?"Stays on "+where+", shows as on break":"",fn:function(){ p.status="break"; savePerson(p); logFeed(p.name+" on break"); closeSheet(); toast(p.name+" is on break"); }});
+      if(p.status!=="active") shBtn(s,{icon:"✓",cls:"go",label:p.status==="break"?"Back from break":"Clocked in — here now",fn:function(){ var wasB=clockOf(p)==="break"; setClock(p,"active"); logFeed(p.name+(wasB?" back from break":" clocked in")); closeSheet(); toast(p.name+" is here"); }});
+      if(p.status==="active") shBtn(s,{icon:"☕",cls:"warn",label:"Send on break",small:where?"Stays on "+where+", shows as on break":"",fn:function(){ setClock(p,"break"); logFeed(p.name+" on break"); closeSheet(); toast(p.name+" is on break"); }});
       if(p.status!=="off") shBtn(s,{icon:"🍳",label:where?"Move to another station":"Put on a station",fn:function(){ stationPickerFor(p); }});
       if(where) shBtn(s,{icon:"↩",label:"Take off "+where,fn:function(){ snap(); unassign(p.id); logFeed(p.name+" off "+where); closeSheet(); toast(p.name+" taken off "+where,{label:"Undo",fn:doUndo}); }});
       if(p.status!=="off"&&board.leaderId!==p.id) shBtn(s,{icon:"★",label:"Make shift leader",small:"Floats — not on a station",fn:function(){ snap(); if(where) board.assignments[where]=board.assignments[where].filter(function(x){return x!==p.id;}); board.leaderId=p.id; saveBoard(); logFeed(p.name+" set as leader"); closeSheet(); }});
-      if(p.status!=="off") shBtn(s,{icon:"🏠",cls:"warn",label:"Gone home / not here",fn:function(){ snap(); if(where) board.assignments[where]=board.assignments[where].filter(function(x){return x!==p.id;}); if(board.leaderId===p.id) board.leaderId=null; p.status="off"; saveBoard(); savePerson(p); logFeed(p.name+" gone home"); closeSheet(); toast(p.name+" marked gone",{label:"Undo",fn:function(){p.status="active";savePerson(p);doUndo();}}); }});
+      if(p.status!=="off") shBtn(s,{icon:"🏠",cls:"warn",label:"Gone home / not here",fn:function(){ sendHome(p); closeSheet(); }});
       shBtn(s,{icon:"🗑",cls:"bad",label:"Remove from team",small:"Quit or transferred",fn:function(){ removePerson(p); }});
       shCancel(s);
     });

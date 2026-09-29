@@ -285,8 +285,8 @@
   .s-row.open .who{color:#ff6b83;}
   .s-row .chev{color:var(--text-faint);font-size:22px;}
   @media (max-width:520px){.s-row .sn{width:92px;font-size:14px;}.s-row .who{font-size:17px;}}
-  .t-row{display:flex;align-items:center;gap:12px;background:var(--panel-2);border:2px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:8px;}
-  .t-row .tx{flex:1;min-width:0;}
+  .t-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--panel-2);border:2px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:8px;}
+  .t-row .tx{flex:1 1 160px;min-width:0;}
   .t-row .tx b{display:block;font-size:18px;}
   .t-row .tx span{font-size:14px;color:var(--text-dim);}
   .t-row.done .tx b{color:var(--text-dim);text-decoration:line-through;}
@@ -401,7 +401,7 @@
 
     <div class="s-card">
       <div class="s-step"><span class="s-num">4</span><h2 class="s-title">Tasks</h2></div>
-      <p class="s-help">Type a task, then tap Add. Tap the button when it is finished.</p>
+        <p class="s-help">Tasks for this shift. Tap someone on the clock, then Assign a task. Or tap Assign on the task.</p>
       <div style="display:flex;gap:8px;margin-bottom:10px;">
         <input class="field" id="s-new-task" placeholder="Add a task (e.g. Dish pit reset)…" style="flex:1;">
         <button class="btn primary" id="s-add-task">Add</button>
@@ -1092,14 +1092,17 @@
   // ---------- render: tasks ----------
   function renderTasks(){
     var wrap=$("task-board"); wrap.innerHTML="";
-    var done=tasks.filter(function(t){return t.status==="done";}).length;
-    $("task-count").textContent="("+done+"/"+tasks.length+" signed off)";
-    sortedTasks().forEach(function(t){
+    var list=tasksNow();
+    var done=list.filter(function(t){return t.status==="done";}).length;
+    $("task-count").textContent="("+done+"/"+list.length+" "+DP_LABEL[board.daypart]+")";
+    list.forEach(function(t){
       var row=document.createElement("div"); row.className="task-row"+(t.status==="done"?" done":"");
       row.innerHTML='<div class="task-name">'+esc(t.name)+(t.sub?'<span class="sub">'+esc(t.sub)+'</span>':'')+'</div>';
       var own=document.createElement("select");
-      own.innerHTML='<option value="">Unassigned</option>'+roster.map(function(p){return '<option value="'+esc(p.id)+'"'+(t.ownerId===p.id?" selected":"")+'>'+esc(p.name)+'</option>';}).join("");
-      own.addEventListener("change",function(){t.ownerId=this.value||null;saveTask(t);});
+      var people=onClock(t.daypart||board.daypart);
+      if(t.ownerId&&person(t.ownerId)&&!people.some(function(p){return p.id===t.ownerId;})) people=people.concat([person(t.ownerId)]);
+      own.innerHTML='<option value="">Unassigned</option>'+people.map(function(p){return '<option value="'+esc(p.id)+'"'+(t.ownerId===p.id?" selected":"")+'>'+esc(p.name)+'</option>';}).join("");
+      own.addEventListener("change",function(){t.ownerId=this.value||null;if(!t.daypart)t.daypart=board.daypart;saveTask(t);});
       row.appendChild(own);
       var ss=document.createElement("select");
       [["not","Not started"],["progress","In progress"],["done","Signed off"]].forEach(function(o){var op=document.createElement("option");op.value=o[0];op.textContent=o[1];if(t.status===o[0])op.selected=true;ss.appendChild(op);});
@@ -1112,6 +1115,11 @@
     });
   }
   function sortedTasks(){return tasks.slice().sort(function(a,b){return (a.order||0)-(b.order||0);});}
+  function tasksNow(){ return sortedTasks().filter(function(t){ return !t.daypart || t.daypart===board.daypart; }); }
+  function onClock(dp){
+    dp=dp||board.daypart;
+    return dueToday(dp).filter(function(p){ return clockOf(p, dp)!=="off"; }).sort(function(a,b){ return a.name.localeCompare(b.name); });
+  }
 
   // ---------- render: TV ----------
   function renderTV(){
@@ -1139,7 +1147,7 @@
     $("tv-board").innerHTML=html;
     // tasks
     var th="";
-    sortedTasks().forEach(function(t){
+    tasksNow().forEach(function(t){
       var o=t.ownerId&&person(t.ownerId), m={done:["p-done","SIGNED OFF"],progress:["p-progress","IN PROGRESS"],not:["p-not","NOT STARTED"]}[t.status]||["p-not","NOT STARTED"];
       th+='<div class="tv-task"><div class="tn">'+esc(t.name)+(t.sub?'<small>'+esc(t.sub)+'</small>':'')+'</div><div class="to">'+esc(o?o.name:"Unassigned")+'</div><div class="pill '+m[0]+'">'+m[1]+'</div></div>';
     });
@@ -1358,11 +1366,39 @@
       shHead(s,p.name,desc);
       if(p.status!=="active") shBtn(s,{icon:"✓",cls:"go",label:p.status==="break"?"Back from break":"Clocked in — here now",fn:function(){ var wasB=clockOf(p)==="break"; setClock(p,"active"); logFeed(p.name+(wasB?" back from break":" clocked in")); closeSheet(); toast(p.name+" is here"); }});
       if(p.status==="active") shBtn(s,{icon:"☕",cls:"warn",label:"Send on break",small:where?"Stays on "+where+", shows as on break":"",fn:function(){ setClock(p,"break"); logFeed(p.name+" on break"); closeSheet(); toast(p.name+" is on break"); }});
+      if(clockOf(p)!=="off") shBtn(s,{icon:"☑",label:"Assign a task",small:"Only "+DP_LABEL[board.daypart]+" tasks",fn:function(){ assignTaskSheet(p); }});
       if(p.status!=="off") shBtn(s,{icon:"🍳",label:where?"Move to another station":"Put on a station",fn:function(){ stationPickerFor(p); }});
       if(where) shBtn(s,{icon:"↩",label:"Take off "+where,fn:function(){ snap(); unassign(p.id); logFeed(p.name+" off "+where); closeSheet(); toast(p.name+" taken off "+where,{label:"Undo",fn:doUndo}); }});
       if(p.status!=="off"&&board.leaderId!==p.id) shBtn(s,{icon:"★",label:"Make shift leader",small:"Floats — not on a station",fn:function(){ snap(); if(where) board.assignments[where]=board.assignments[where].filter(function(x){return x!==p.id;}); board.leaderId=p.id; saveBoard(); logFeed(p.name+" set as leader"); closeSheet(); }});
       if(p.status!=="off") shBtn(s,{icon:"🏠",cls:"warn",label:"Gone home / not here",fn:function(){ sendHome(p); closeSheet(); }});
       shBtn(s,{icon:"🗑",cls:"bad",label:"Remove from team",small:"Quit or transferred",fn:function(){ removePerson(p); }});
+      shCancel(s);
+    });
+  }
+  function assignTaskSheet(p){
+    openSheet(function(s){
+      shHead(s,"Task for "+p.name.split(" ")[0],"Only "+DP_LABEL[board.daypart]+" tasks.");
+      var list=tasksNow().filter(function(t){ return t.status!=="done"; });
+      if(!list.length){ var empty=document.createElement("p"); empty.className="sd"; empty.textContent="No open tasks for "+DP_LABEL[board.daypart]+". Add one in Tasks first."; s.appendChild(empty); }
+      list.forEach(function(t){
+        var who=t.ownerId&&person(t.ownerId);
+        shBtn(s,{label:t.name,small:who&&who.id!==p.id?"Now "+who.name:(who?"Already theirs":"No one yet"),fn:function(){
+          t.ownerId=p.id; if(!t.daypart) t.daypart=board.daypart; saveTask(t); logFeed(t.name+" → "+p.name); closeSheet(); toast(p.name+" → "+t.name);
+        }});
+      });
+      shBtn(s,{icon:"↩",label:"Back",fn:function(){ personSheet(p); }});
+    });
+  }
+  function assignPersonSheet(t){
+    var dp=t.daypart||board.daypart;
+    openSheet(function(s){
+      shHead(s,"Who gets "+t.name+"?","Only people clocked in for "+DP_LABEL[dp]+".");
+      var list=onClock(dp);
+      if(!list.length){ var empty=document.createElement("p"); empty.className="sd"; empty.textContent="Nobody is clocked in for "+DP_LABEL[dp]+"."; s.appendChild(empty); }
+      list.forEach(function(p){
+        shBtn(s,{label:p.name,small:t.ownerId===p.id?"Assigned now":"",fn:function(){ t.ownerId=p.id; if(!t.daypart) t.daypart=dp; saveTask(t); logFeed(t.name+" → "+p.name); closeSheet(); toast(p.name+" → "+t.name); }});
+      });
+      if(t.ownerId) shBtn(s,{icon:"↩",label:"Take the name off",fn:function(){ t.ownerId=null; saveTask(t); closeSheet(); toast(t.name+" is unassigned"); }});
       shCancel(s);
     });
   }
@@ -1575,15 +1611,18 @@
 
     // tasks
     var tb=$("s-tasks"); tb.innerHTML="";
-    if(!tasks.length) tb.innerHTML='<p class="s-help" style="margin:0;">No tasks posted.</p>';
-    sortedTasks().forEach(function(t){
+    var list=tasksNow();
+    if(!list.length) tb.innerHTML='<p class="s-help" style="margin:0;">No tasks for '+esc(DP_LABEL[board.daypart])+'.</p>';
+    list.forEach(function(t){
       var o=t.ownerId&&person(t.ownerId), row=document.createElement("div");
       row.className="t-row"+(t.status==="done"?" done":"");
       row.innerHTML='<div class="tx"><b>'+esc(t.name)+'</b><span>'+esc(o?o.name:"No one assigned")+(t.sub?" · "+esc(t.sub):"")+'</span></div>';
+      var pick=document.createElement("button"); pick.className="t-btn"; pick.textContent="Assign";
+      pick.addEventListener("click",function(){ assignPersonSheet(t); });
       var btn=document.createElement("button"); btn.className="t-btn"+(t.status==="done"?" done":"");
       btn.textContent=t.status==="done"?"✓ Done":"Mark done";
       btn.addEventListener("click",function(){ t.status=t.status==="done"?"not":"done"; if(t.status==="done")t.doneAt=new Date().toISOString(); saveTask(t); if(t.status==="done") logFeed(t.name+" signed off"); });
-      row.appendChild(btn); tb.appendChild(row);
+      row.appendChild(pick); row.appendChild(btn); tb.appendChild(row);
     });
   }
 
@@ -2257,7 +2296,7 @@
   $("clear-btn").addEventListener("click",clearBoard);
   $("add-task").addEventListener("click",function(){
     var n=$("new-task").value.trim(); if(!n) return;
-    var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now()};
+    var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now(),daypart:board.daypart};
     tasks.push(t); $("new-task").value=""; saveTask(t);
   });
   $("new-task").addEventListener("keydown",function(e){if(e.key==="Enter")$("add-task").click();});
@@ -2265,7 +2304,7 @@
   $("adv-callin").addEventListener("click",openCallIn);
   $("s-add-task").addEventListener("click",function(){
     var n=$("s-new-task").value.trim(); if(!n) return;
-    var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now()};
+    var t={id:"t-"+Date.now().toString(36),name:n,sub:"",ownerId:null,status:"not",order:Date.now(),daypart:board.daypart};
     tasks.push(t); $("s-new-task").value=""; saveTask(t);
   });
   $("s-new-task").addEventListener("keydown",function(e){if(e.key==="Enter")$("s-add-task").click();});

@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kitchen Command">
 <meta name="theme-color" content="#0B0C0E">
 <title>Kitchen Command</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -326,6 +329,18 @@
 
   footer{text-align:center;color:var(--text-faint);font-size:11px;padding:20px 0 6px;}
   body.tv footer{display:none;}
+  /* ---------- TV fit-to-screen: the TV views fill the screen exactly, on a tablet or a TV.
+     JS (fitTV) scales the header by screen width and the board/tasks/forecast to the height that is left. ---------- */
+  html:has(body.tv){height:100%;overflow:hidden;}
+  body.tv{height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column;}
+  body.tv #topbar,body.tv #tvbar,body.tv #tv-breaks{flex:none;}
+  body.tv #topbar{position:relative;}
+  body.tv #app{flex:1;min-height:0;overflow:hidden;width:100%;box-sizing:border-box;margin:0;padding:clamp(8px,1.4vh,20px) clamp(10px,1.6vw,28px) max(clamp(8px,1.4vh,20px),env(safe-area-inset-bottom,0px));}
+  body.tv #app.tv-scroll{overflow-y:auto;-webkit-overflow-scrolling:touch;}
+  body.tv #tvbar{padding-left:max(28px,env(safe-area-inset-left,0px));padding-right:max(28px,env(safe-area-inset-right,0px));}
+  body.tv.tv-full #topbar{padding-top:calc(2px + env(safe-area-inset-top,0px));padding-bottom:2px;}
+  body.tv.tv-full #topbar .sync{display:none;}
+  @media (max-width:760px){ body.tv #tvbar{grid-template-columns:1fr auto;} body.tv .tv-rush{grid-column:1/-1;grid-row:2;} }
 </style>
 <script>
   // Kitchen Command bootstrap: the app asks window.claude.use("db") for its database.
@@ -1171,6 +1186,35 @@
     document.body.classList.toggle("show-tasks",view==="tv-tasks"||(view==="tv-rotate"&&tvPanel==="tasks"));
     document.body.classList.toggle("show-forecast",showFc);
     if(showFc){ if(!wasFc) $("tv-forecast").removeAttribute("data-key"); paintTvForecast(); }
+    fitTV();
+  }
+  // Fit the TV view to whatever screen it is on: header scales with width, the visible
+  // panel gets the largest zoom that still fits the height left (scrolls only if it can't fit at all).
+  var fitKey="", fitRaf=0;
+  function fitTV(force){
+    if(fitRaf) cancelAnimationFrame(fitRaf);
+    fitRaf=requestAnimationFrame(function(){ fitRaf=0; doFitTV(force); });
+  }
+  function doFitTV(force){
+    var app=$("app"), panels=[$("tv-board"),$("tv-tasks"),$("tv-forecast")];
+    if(!document.body.classList.contains("tv")){
+      panels.concat([$("tvbar"),$("tv-breaks")]).forEach(function(el){ el.style.zoom=""; });
+      app.classList.remove("tv-scroll"); fitKey=""; return;
+    }
+    document.body.classList.toggle("tv-full",tvIsFull());
+    var panel=panels.filter(function(el){ return getComputedStyle(el).display!=="none"; })[0];
+    var key=innerWidth+"x"+innerHeight+"|"+(panel?panel.id+panel.innerHTML.length:"")+"|"+$("tv-breaks").innerHTML.length+"|"+tvIsFull();
+    if(!force&&key===fitKey) return; fitKey=key;
+    var hz=Math.max(.6,Math.min(1.8,innerWidth/1500));
+    $("tvbar").style.zoom=hz; $("tv-breaks").style.zoom=hz;
+    if(!panel) return;
+    var cs=getComputedStyle(app), avail=app.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom);
+    var fits=function(z){ panel.style.zoom=z; return panel.getBoundingClientRect().height<=avail+1; };
+    var lo=.45, hi=Math.max(1,Math.min(3,innerWidth/1300)); // never blow up past what the screen width suits
+    if(fits(hi)){ app.classList.remove("tv-scroll"); return; }
+    if(!fits(lo)){ panel.style.zoom=lo; app.classList.add("tv-scroll"); return; }
+    for(var i=0;i<9;i++){ var mid=(lo+hi)/2; if(fits(mid)) lo=mid; else hi=mid; }
+    panel.style.zoom=lo; app.classList.remove("tv-scroll");
   }
   function paintTvForecast(){
     var date=isoDate(), act=sales[date], wd=weekdayOf(date), fc=forecast[wd], box=$("tv-forecast");
@@ -1206,7 +1250,7 @@
     ui.view=v; saveUi();
     if(v==="tv-rotate"){tvPanel="deploy";rotStart=Date.now();}
     try{history.replaceState(null,"","#/"+v);}catch(e){}
-    renderAll(); measureTopbar();
+    renderAll(); measureTopbar(); fitTV(true);
   }
   function measureTopbar(){document.documentElement.style.setProperty("--tb",$("topbar").offsetHeight+"px");}
 
@@ -1285,6 +1329,7 @@
       var w=placedAt(p.id), left=breakRemain(p);
       return '<span class="nm">'+esc(p.name)+(w?" · "+esc(w):"")+' <span class="tm'+(left?"\"":" up\"")+'>'+breakClock(left)+'</span></span>';
     }).join(""):'<span class="none">Nobody</span>')+'</div>';
+    fitTV();
   }
   function applyClockToStatus(){
     roster.forEach(function(p){ p.status=clockOf(p); });
@@ -2290,8 +2335,9 @@
       if(req) req.call(el);
     }
   });
-  document.addEventListener("fullscreenchange",paintTvFull);
-  document.addEventListener("webkitfullscreenchange",paintTvFull);
+  document.addEventListener("fullscreenchange",function(){ paintTvFull(); fitTV(true); });
+  document.addEventListener("webkitfullscreenchange",function(){ paintTvFull(); fitTV(true); });
+  (function(){ var el=document.documentElement; if(!(el.requestFullscreen||el.webkitRequestFullscreen)) $("tv-full").hidden=true; })();
   $("sched-btn").addEventListener("click",openImport);
   $("s-sched").addEventListener("click",openImport);
   $("s-team").addEventListener("click",teamSheet);
@@ -2352,7 +2398,8 @@
     r.readAsText(f); e.target.value="";
   });
   document.addEventListener("keydown",function(e){ if(e.key!=="Escape")return; if($("sheet-bg").classList.contains("show")&&!importBusy){closeSheet();return;} if(selected){selected=null;renderAll();} });
-  window.addEventListener("resize",measureTopbar);
+  window.addEventListener("resize",function(){ measureTopbar(); fitTV(true); });
+  window.addEventListener("orientationchange",function(){ setTimeout(function(){ fitTV(true); },300); });
 
   // clocks: rotate TV panels, refresh countdowns
   setInterval(function(){

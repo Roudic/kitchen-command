@@ -340,6 +340,10 @@
   body.tv #tvbar{padding-left:max(28px,env(safe-area-inset-left,0px));padding-right:max(28px,env(safe-area-inset-right,0px));}
   body.tv.tv-full #topbar{padding-top:calc(2px + env(safe-area-inset-top,0px));padding-bottom:2px;}
   body.tv.tv-full #topbar .sync{display:none;}
+  body.tv.kc-fill #topbar{display:none;}
+  #fill-exit{display:none;position:fixed;right:calc(14px + env(safe-area-inset-right,0px));bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:95;appearance:none;border:1px solid var(--line);background:rgba(20,22,25,.85);color:var(--text-dim);font:700 13px/1 inherit;padding:10px 14px;border-radius:999px;cursor:pointer;opacity:.6;}
+  #fill-exit:hover,#fill-exit:focus-visible{opacity:1;color:var(--text);}
+  body.tv.kc-fill #fill-exit{display:block;}
   @media (max-width:760px){ body.tv #tvbar{grid-template-columns:1fr auto;} body.tv .tv-rush{grid-column:1/-1;grid-row:2;} }
 </style>
 <script>
@@ -537,6 +541,7 @@
 <input type="file" id="sales-file" accept=".csv,text/csv" hidden>
 <div id="ghost"></div>
 <div id="toast"><span id="toast-msg"></span></div>
+<button type="button" id="fill-exit" aria-label="Exit full screen">✕ Exit full screen</button>
 
 <script>
 (function(){
@@ -2324,20 +2329,37 @@
   $("daypart-select").addEventListener("change",function(){setDaypart(this.value);});
   $("view-seg").addEventListener("click",function(e){var b=e.target.closest("button[data-view]");if(b)setView(b.getAttribute("data-view"));});
   $("tv-seg").addEventListener("click",function(e){var b=e.target.closest("button[data-view]");if(b)setView(b.getAttribute("data-view"));});
-  function tvIsFull(){ return !!(document.fullscreenElement||document.webkitFullscreenElement); }
+  // Full screen. Tries the browser's real full screen; whether or not the browser allows it
+  // (iPhone, some iPad and in-app browsers don't), it also switches to "fill" mode: the top bar
+  // hides and the TV view takes the whole screen. A small Exit button stays in the corner.
+  var LS_FILL="kitchen_command_fill_v1";
+  function tvIsFull(){ return !!(document.fullscreenElement||document.webkitFullscreenElement) || document.body.classList.contains("kc-fill"); }
+  function realFull(){ return !!(document.fullscreenElement||document.webkitFullscreenElement); }
   function paintTvFull(){ var b=$("tv-full"); if(!b) return; b.textContent=tvIsFull()?"Exit full screen":"Full screen"; b.classList.toggle("active",tvIsFull()); }
-  $("tv-full").addEventListener("click",function(){
-    if(tvIsFull()){
-      var exit=document.exitFullscreen||document.webkitExitFullscreen;
-      if(exit) exit.call(document);
-    } else {
-      var el=document.documentElement, req=el.requestFullscreen||el.webkitRequestFullscreen;
-      if(req) req.call(el);
-    }
-  });
-  document.addEventListener("fullscreenchange",function(){ paintTvFull(); fitTV(true); });
-  document.addEventListener("webkitfullscreenchange",function(){ paintTvFull(); fitTV(true); });
-  (function(){ var el=document.documentElement; if(!(el.requestFullscreen||el.webkitRequestFullscreen)) $("tv-full").hidden=true; })();
+  function setFill(on){
+    document.body.classList.toggle("kc-fill",!!on);
+    try{ localStorage.setItem(LS_FILL,on?"1":"0"); }catch(e){}
+    paintTvFull(); measureTopbar(); fitTV(true);
+  }
+  function enterFull(){
+    setFill(true);
+    var el=document.documentElement, req=el.requestFullscreen||el.webkitRequestFullscreen;
+    try{ var r=req&&req.call(el); if(r&&r.catch) r.catch(function(){}); }catch(e){}
+  }
+  function exitFull(){
+    setFill(false);
+    if(realFull()){ var x=document.exitFullscreen||document.webkitExitFullscreen; try{ var r=x&&x.call(document); if(r&&r.catch) r.catch(function(){}); }catch(e){} }
+  }
+  $("tv-full").addEventListener("click",function(){ if(tvIsFull()) exitFull(); else enterFull(); });
+  $("fill-exit").addEventListener("click",exitFull);
+  var wasReal=false;
+  function onFsChange(){ var now=realFull(); if(wasReal&&!now) setFill(false); wasReal=now; paintTvFull(); fitTV(true); }
+  document.addEventListener("fullscreenchange",onFsChange);
+  document.addEventListener("webkitfullscreenchange",onFsChange);
+  document.addEventListener("keydown",function(e){ if(e.key==="Escape"&&document.body.classList.contains("kc-fill")) exitFull(); });
+  try{ if(localStorage.getItem(LS_FILL)==="1") document.body.classList.add("kc-fill"); }catch(e){}
+  if(matchMedia("(display-mode: standalone)").matches||navigator.standalone===true) document.body.classList.add("kc-fill");
+  paintTvFull();
   $("sched-btn").addEventListener("click",openImport);
   $("s-sched").addEventListener("click",openImport);
   $("s-team").addEventListener("click",teamSheet);

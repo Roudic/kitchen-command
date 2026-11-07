@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rush Forecaster — Know when the rush hits</title>
+<meta name="description" content="Rush Forecaster turns your 15-minute sales report into a forecast for every day of the week. It counts down to each rush and tells you how many BOH to have on.">
+<meta name="theme-color" content="#0B0C0E">
+<meta property="og:title" content="Rush Forecaster — Know when the rush hits">
+<meta property="og:description" content="Upload one sales report a week. Get the rush countdown and a crew target for every daypart.">
+<link rel="stylesheet" href="landing.css">
+</head>
+<body>
+
+<nav class="nav"><div class="wrap">
+  <a class="logo" href="rush-forecaster.html"><i>RF</i>Rush Forecaster</a>
+  <a class="link" href="#how">How it works</a>
+  <a class="link" href="#features">What you get</a>
+  <a class="link" href="./">Kitchen Command</a>
+  <a class="link" href="#pricing">Pricing</a>
+  <a class="btn primary sm" href="#start">Try it free</a>
+</div></nav>
+
+<header class="hero"><div class="wrap grid">
+  <div>
+    <span class="eyebrow">Sales-based rush forecasting</span>
+    <h1>Know the rush is coming <em>before</em> the screens back up.</h1>
+    <p class="lead">Rush Forecaster reads your 15-minute sales and tells you, for every day of the week, when each rush starts, how big it gets, and how many people you need in the back.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="#start">Try it free for <span data-pilot>30</span> days</a>
+      <a class="btn ghost" href="#how">How it works</a>
+    </div>
+    <div class="trust">One upload a week · Built on your own sales · Works on the TV, iPad and phone</div>
+  </div>
+
+  <div class="screen reveal" aria-label="Rush Forecaster preview">
+    <div class="bar"><span class="mk">RF</span><b>Today · Friday</b><span class="pill">FORECAST</span></div>
+    <div class="rush" id="demo-rush"><div class="big">Lunch rush in 38m</div><div class="small">Starts 11:00 AM · target 6 BOH</div></div>
+    <div class="chips"><div><span class="n">BREAKFAST</span><span class="v">$2,140</span></div><div class="on"><span class="n">LUNCH</span><span class="v">$6,880</span></div><div><span class="n">AFTERNOON</span><span class="v">$2,310</span></div><div><span class="n">DINNER</span><span class="v">$5,420</span></div></div>
+    <div class="chart"><div id="demo-chart"></div><div class="legend" id="demo-legend"></div></div>
+  </div>
+</div></header>
+
+<section class="alt"><div class="wrap">
+  <h2 class="reveal">"We got slammed" shouldn't be a surprise.</h2>
+  <p class="sub reveal">Your sales already show exactly when you get busy. The problem is nobody has time to dig through them before a shift.</p>
+  <div class="pain reveal">
+    <div><b><span class="x">✕</span>Gut-feel staffing</b><p>"Fridays are busy" doesn't tell you whether you need 5 or 7 on the line at 11:45.</p></div>
+    <div><b><span class="x">✕</span>Reports nobody reads</b><p>The 15-minute sales report sits in the back office. The answers are in it. Nobody's opening it mid-shift.</p></div>
+    <div><b><span class="x">✕</span>Over or under, every time</b><p>Too few people and the drive-thru backs up. Too many and labor runs hot during the dead hour.</p></div>
+  </div>
+</div></section>
+
+<section id="how"><div class="wrap">
+  <div class="center"><h2 class="reveal">Three steps. Five minutes a week.</h2>
+  <p class="sub reveal">If you can download a report, you can run Rush Forecaster.</p></div>
+  <div class="steps reveal">
+    <div><b>Upload your sales</b><p>Monday, drop in the 15-minute sales CSV your POS already exports. That's the whole weekly job.</p></div>
+    <div><b>Forecast builds itself</b><p>It averages the same weekday across your recent weeks, throws out partial days and one-off spikes, and maps every 15 minutes.</p></div>
+    <div><b>Staff to the rush</b><p>Each daypart gets a rush window and a crew target. The countdown runs all day on the board and the TV.</p></div>
+  </div>
+</div></section>
+
+<section class="alt" id="features"><div class="wrap">
+  <div class="split">
+    <div class="reveal">
+      <h3>Sales bands become crew targets.</h3>
+      <p>Every 15-minute slot falls into a band, from Slow to Peak. Each band has a BOH number, so the forecast doesn't stop at "busy" — it tells you how many people to put on.</p>
+      <ul class="checks"><li>Bands set to your store's staffing chart</li><li>Peak crew target for every daypart</li><li>Low-confidence warning when there's thin data</li></ul>
+    </div>
+    <div class="screen reveal">
+      <div class="bar"><span class="mk">RF</span><b>Crew bands</b></div>
+      <div class="board" style="grid-template-columns:1fr">
+        <div class="st"><div class="a">SLOW · UNDER $250 / 15 MIN</div><div class="p">3 BOH</div></div>
+        <div class="st"><div class="a">STEADY · $250–$450</div><div class="p">4 BOH</div></div>
+        <div class="st"><div class="a">BUSY · $450–$700</div><div class="p">5 BOH</div></div>
+        <div class="st" style="border-color:#C8552E"><div class="a">RUSH · $700–$950</div><div class="p">6 BOH</div></div>
+        <div class="st" style="border-color:#E51636"><div class="a">PEAK · $950+</div><div class="p">7 BOH</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="split flip">
+    <div class="screen reveal">
+      <div class="bar"><span class="mk">RF</span><b>Kitchen TV</b><span class="pill">LIVE</span></div>
+      <div class="rush hot"><div class="big">LUNCH RUSH NOW</div><div class="small">Until 1:30 PM · $940/15 at peak · target 6 BOH</div></div>
+      <div class="rush" style="background:var(--panel-2);border-color:var(--line)"><div class="big" style="font-size:16px">Dinner rush in 4h 10m</div><div class="small">Starts 5:15 PM · target 6 BOH</div></div>
+      <div class="rush" style="background:var(--panel-2);border-color:var(--line)"><div class="big" style="font-size:16px;color:var(--text-dim)">After 8:00 PM</div><div class="small">Rushes are done for today · close strong</div></div>
+    </div>
+    <div class="reveal">
+      <h3>A countdown the whole crew can see.</h3>
+      <p>Put it on the kitchen TV and everybody knows what's coming: "Lunch rush in 38m." When the rush starts, the strip turns red and shows how long it lasts.</p>
+      <ul class="checks"><li>Live countdown to the next rush</li><li>Shows the end time and the peak sales</li><li>Scales from a tablet to a 4K TV</li></ul>
+    </div>
+  </div>
+
+  <div class="split">
+    <div class="reveal">
+      <h3>Check the forecast against what you sold.</h3>
+      <p>Look back at any day and see actual sales against the forecast, slot by slot. You'll see where you beat it and where it missed, and it gets sharper every week you upload.</p>
+      <ul class="checks"><li>Actual vs. forecast for every day</li><li>Partial days left out automatically</li><li>Look ahead two weeks</li></ul>
+    </div>
+    <div class="feats" style="grid-template-columns:1fr 1fr">
+      <div class="feat reveal"><b>15-min detail</b><p>No guessing by the hour. Every quarter hour, open to close.</p></div>
+      <div class="feat reveal"><b>4 dayparts</b><p>Breakfast, lunch, afternoon and dinner, each with its own rush window.</p></div>
+      <div class="feat reveal"><b>Spike cap</b><p>Catering orders and one-off days don't throw off next week.</p></div>
+      <div class="feat reveal"><b>Your data only</b><p>Built from your store's own sales, locked to your login.</p></div>
+    </div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="center"><h2 class="reveal">Want the whole board?</h2>
+  <p class="sub reveal">Rush Forecaster comes built into <b>Kitchen Command</b>, the live BOH deployment board with auto-deploy, break tracking, shift tasks and TV mode.</p>
+  <a class="btn ghost reveal" href="./">See Kitchen Command →</a></div>
+</div></section>
+
+<section class="alt" id="pricing"><div class="wrap">
+  <div class="center"><h2 class="reveal">Pick your plan.</h2>
+  <p class="sub reveal">Free for <span data-pilot>30</span> days. No card, no contract.</p></div>
+  <div class="plans reveal">
+    <div class="plan best">
+      <h3>Rush Forecaster</h3><p class="for">See every rush coming and staff to it.</p>
+      <div class="price"><span data-price="rush">$29</span> <small>/ store / month</small></div>
+      <ul class="checks"><li>Weekly forecast from your 15-minute sales</li><li>Rush countdown on the TV, iPad and phone</li><li>Crew target for every daypart</li><li>Forecast vs. actual</li><li>We load your past sales for you</li></ul>
+      <a class="btn primary" href="#start">Start free</a>
+    </div>
+    <div class="plan">
+      <h3>Kitchen Command</h3><p class="for">Rush Forecaster plus the full deployment board.</p>
+      <div class="price"><span data-price="command">$79</span> <small>/ store / month</small></div>
+      <ul class="checks"><li>Everything in Rush Forecaster</li><li>Live deployment board + auto-deploy</li><li>Break tracking, shift tasks</li><li>TV rotate mode, Standards Board</li></ul>
+      <a class="btn ghost" href="./">See Kitchen Command</a>
+    </div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="center"><h2 class="reveal">Questions</h2></div>
+  <div class="faq reveal">
+    <details><summary>What sales report do I need?</summary><p>The sales-by-15-minute export your POS already makes, saved as a CSV. Upload it once a week and the forecast rebuilds itself.</p></details>
+    <details><summary>How much history does it need?</summary><p>It works from a single week, but it flags that as low confidence. With three or four weeks it's solid, and it keeps learning as you upload.</p></details>
+    <details><summary>What about holidays and catering days?</summary><p>Partial days are left out, and a spike cap stops one huge order from inflating next week's forecast.</p></details>
+    <details><summary>Can I set my own crew numbers?</summary><p>Yes. The bands and the BOH count for each band follow your store's staffing chart.</p></details>
+    <details><summary>Can I upgrade later?</summary><p>Any time. Your forecast carries straight over into Kitchen Command.</p></details>
+  </div>
+</div></section>
+
+<section class="final" id="start"><div class="wrap">
+  <h2 class="reveal">Stop guessing. Start staffing to the rush.</h2>
+  <p class="sub reveal" style="margin:0 auto;">Tell us about your store and we'll load your sales and get you running.</p>
+  <form class="form" id="pilot-form" data-product="Rush Forecaster">
+    <div><label for="f-name">Your name</label><input id="f-name" name="name" required autocomplete="name"></div>
+    <div><label for="f-store">Store / location</label><input id="f-store" name="store" required></div>
+    <div><label for="f-role">Your role</label><select id="f-role" name="role"><option>Shift leader</option><option>Kitchen director</option><option>Store owner / operator</option><option>Other</option></select></div>
+    <div><label for="f-contact">Phone or email</label><input id="f-contact" name="contact" required></div>
+    <div class="full"><button class="btn primary" type="submit">Start my free trial</button></div>
+    <div class="form-msg" id="form-msg" role="status"></div>
+  </form>
+</div></section>
+
+<footer><div class="wrap">
+  <span>© <span id="yr">2026</span> Rush Forecaster · part of Kitchen Command</span>
+  <span><a href="./">Kitchen Command</a> · <a href="#pricing">Pricing</a> · <a data-app href="../">Sign in</a></span>
+</div></footer>
+
+<script src="config.js"></script>
+<script src="landing.js"></script>
+</body>
+</html>
